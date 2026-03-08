@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 import psycopg
-import psycopg.rows import dict_row
+from psycopg.rows import dict_row
 
 from config import SUPABASE_DB_URL
 
