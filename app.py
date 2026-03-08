@@ -103,7 +103,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, h.save_thumbnail))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, h.text_search))
 
-    print("Bot v2.3 is running...")
+    print("Bot v2.4 is running...")
     app.run_polling(drop_pending_updates=True)
 
 

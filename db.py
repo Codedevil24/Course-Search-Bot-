@@ -14,7 +14,7 @@ class Database:
             raise ValueError("SUPABASE_DB_URL missing in environment")
 
     def get_conn(self):
-        return psycopg.connect(self.db_url,row_factory=dict_row)
+        return psycopg.connect(self.db_url, row_factory=dict_row)
 
     def init_db(self):
         with self.get_conn() as conn:
@@ -94,7 +94,13 @@ class Database:
                 );
                 """)
 
-    def upsert_user(self, user_id: int, username: str = "", first_name: str = "", last_name: str = ""):
+    def upsert_user(
+        self,
+        user_id: int,
+        username: str = "",
+        first_name: str = "",
+        last_name: str = "",
+    ):
         with self.get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -136,11 +142,21 @@ class Database:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 RETURNING id
                 """, (
-                    title, instructor, category, description, thumbnail,
-                    download_url, how_to_download_url, demo_url, contact_url,
-                    premium_channel_link, is_featured, is_paid, price
+                    title,
+                    instructor,
+                    category,
+                    description,
+                    thumbnail,
+                    download_url,
+                    how_to_download_url,
+                    demo_url,
+                    contact_url,
+                    premium_channel_link,
+                    is_featured,
+                    is_paid,
+                    price,
                 ))
-                course_id = cur.fetchone()[0]
+                course_id = cur.fetchone()["id"]
 
                 for kw in keywords:
                     kw = kw.strip().lower()
@@ -168,14 +184,14 @@ class Database:
 
     def get_course(self, course_id: int) -> dict[str, Any] | None:
         with self.get_conn() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute("SELECT * FROM courses WHERE id=%s", (course_id,))
                 row = cur.fetchone()
                 return dict(row) if row else None
 
     def list_courses(self, limit: int = 100) -> list[dict[str, Any]]:
         with self.get_conn() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute("""
                 SELECT * FROM courses
                 ORDER BY updated_at DESC, created_at DESC
@@ -194,7 +210,7 @@ class Database:
 
     def get_featured_courses(self, limit: int = 20) -> list[dict[str, Any]]:
         with self.get_conn() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute("""
                 SELECT * FROM courses
                 WHERE is_featured=TRUE
@@ -212,13 +228,13 @@ class Database:
                 WHERE category IS NOT NULL AND TRIM(category) <> ''
                 ORDER BY category ASC
                 """)
-                return [r[0] for r in cur.fetchall()]
+                return [r["category"] for r in cur.fetchall()]
 
     def get_all_keywords(self) -> list[str]:
         with self.get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT keyword FROM keywords")
-                return [r[0] for r in cur.fetchall()]
+                return [r["keyword"] for r in cur.fetchall()]
 
     def log_search(self, user_id: int | None, username: str, query: str, matched_count: int):
         with self.get_conn() as conn:
@@ -255,7 +271,7 @@ class Database:
 
     def get_stats(self) -> dict[str, Any]:
         with self.get_conn() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) AS c FROM courses")
                 total_courses = cur.fetchone()["c"]
 
@@ -329,7 +345,7 @@ class Database:
             return []
 
         with self.get_conn() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute("""
                 SELECT c.*
                 FROM courses c
