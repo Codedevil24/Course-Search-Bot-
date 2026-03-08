@@ -32,6 +32,10 @@ class BotHandlers:
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
+        if not update.message:
+            return
+
         text = (
             "🚀 <b>Welcome to Code Devil Premium Course Bot</b>\n\n"
             "Yahan aap direct course search kar sakte ho.\n\n"
@@ -45,6 +49,7 @@ class BotHandlers:
             "/featured\n"
             "/help"
         )
+
         await update.message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
@@ -53,6 +58,10 @@ class BotHandlers:
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
+        if not update.message:
+            return
+
         text = (
             "📖 <b>Help</b>\n\n"
             "User:\n"
@@ -75,6 +84,10 @@ class BotHandlers:
 
     async def featured(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
+        if not update.message:
+            return
+
         results = self.db.get_featured_courses()
         if not results:
             await update.message.reply_text("Abhi koi featured course nahi hai.")
@@ -88,6 +101,10 @@ class BotHandlers:
 
     async def categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
+        if not update.message:
+            return
+
         cats = self.db.get_categories()
         await update.message.reply_text(
             "📚 <b>Categories</b>",
@@ -97,10 +114,15 @@ class BotHandlers:
 
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
+        if not update.message:
+            return
+
         query = " ".join(context.args).strip()
         if not query:
             await update.message.reply_text("Usage:\n/search python")
             return
+
         await self.run_search(update, context, query)
 
     async def run_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query: str):
@@ -115,6 +137,9 @@ class BotHandlers:
             query=query,
             matched_count=len(results),
         )
+
+        if not update.message:
+            return
 
         if results:
             if len(results) == 1:
@@ -138,6 +163,9 @@ class BotHandlers:
         await update.message.reply_text("❌ Koi course nahi mila.")
 
     async def send_course_card(self, update: Update, course: dict):
+        if not update.message:
+            return
+
         caption = format_course_caption(course)
         thumbnail = course.get("thumbnail")
 
@@ -161,18 +189,25 @@ class BotHandlers:
 
     async def text_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         if not update.message or not update.message.text:
             return
+
         text = update.message.text.strip()
         if text.startswith("/"):
             return
         if len(text) < 2:
             return
+
         await self.run_search(update, context, text)
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         query = update.callback_query
+        if not query:
+            return
+
         await query.answer()
 
         data = query.data or ""
@@ -189,7 +224,7 @@ class BotHandlers:
 
                 self.db.log_click(
                     user.id if user else None,
-                    user.username if user else "",
+                    user.username if user and user.username else "",
                     course_id,
                     "open_course",
                 )
@@ -292,8 +327,12 @@ class BotHandlers:
                 last_name=user.last_name or "",
             )
 
+        if not update.inline_query:
+            return
+
         query = update.inline_query.query.strip()
         if not query:
+            await update.inline_query.answer([], cache_time=1)
             return
 
         results = self.db.search_courses(query, limit=20)
@@ -326,10 +365,14 @@ class BotHandlers:
 
         user = update.effective_user
         if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+            if update.message:
+                await update.message.reply_text("❌ Admin only command.")
             return
 
-        text = update.message.text.replace("/addcourse", "").strip()
+        if not update.message or not update.message.text:
+            return
+
+        text = update.message.text.replace("/addcourse", "", 1).strip()
         fields = {}
 
         for line in text.split("\n"):
@@ -340,29 +383,25 @@ class BotHandlers:
         required = ["title", "instructor", "category", "description"]
 
         for r in required:
-            if r not in fields:
+            if r not in fields or not fields[r]:
                 await update.message.reply_text(f"❌ Missing field: {r}")
                 return
 
-        keywords = [
-            k.strip()
-            for k in fields.get("keywords", "").split(",")
-            if k.strip()
-        ]
+        keywords = [k.strip() for k in fields.get("keywords", "").split(",") if k.strip()]
 
         course_id = self.db.add_course(
-            title=fields.get("title"),
-            instructor=fields.get("instructor"),
-            category=fields.get("category"),
-            description=fields.get("description"),
+            title=fields.get("title", ""),
+            instructor=fields.get("instructor", ""),
+            category=fields.get("category", ""),
+            description=fields.get("description", ""),
             thumbnail=fields.get("thumbnail", ""),
             download_url=fields.get("download", ""),
             how_to_download_url=fields.get("howtodownload", ""),
             demo_url=fields.get("demo", ""),
             contact_url=fields.get("contact", ""),
             premium_channel_link=fields.get("premiumlink", ""),
-            is_featured=int(fields.get("featured", "0")) == 1,
-            is_paid=int(fields.get("paid", "0")) == 1,
+            is_featured=fields.get("featured", "0") == "1",
+            is_paid=fields.get("paid", "0") == "1",
             price=fields.get("price", ""),
             keywords=keywords,
         )
@@ -381,11 +420,13 @@ class BotHandlers:
 
         user = update.effective_user
         if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+            if update.message:
+                await update.message.reply_text("❌ Admin only command.")
             return
 
         if not update.message or not update.message.photo:
-            await update.message.reply_text("❌ Please send a photo.")
+            if update.message:
+                await update.message.reply_text("❌ Please send a photo.")
             return
 
         if not update.message.reply_to_message:
@@ -428,9 +469,14 @@ class BotHandlers:
 
     async def importcsv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         user = update.effective_user
         if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+            if update.message:
+                await update.message.reply_text("❌ Admin only command.")
+            return
+
+        if not update.message:
             return
 
         args = context.args
@@ -447,9 +493,14 @@ class BotHandlers:
 
     async def deletecourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         user = update.effective_user
         if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+            if update.message:
+                await update.message.reply_text("❌ Admin only command.")
+            return
+
+        if not update.message or not update.message.text:
             return
 
         text = update.message.text.replace("/deletecourse", "", 1).strip()
@@ -457,27 +508,52 @@ class BotHandlers:
             await update.message.reply_text("Usage: /deletecourse 3")
             return
 
-        self.db.delete_course(int(text))
+        course_id = int(text)
+
+        # Soft delete use karna ho to niche wali line use karo:
+        self.db.soft_delete_course(course_id)
+
         await update.message.reply_text("🗑 Deleted.")
 
     async def listcourses(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         user = update.effective_user
         if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+            if update.message:
+                await update.message.reply_text("❌ Admin only command.")
             return
 
-        courses = self.db.list_courses(limit=100)
+        if not update.message:
+            return
+
+        courses = self.db.list_courses(limit=100, active_only=False)
+        if not courses:
+            await update.message.reply_text("No courses found.")
+            return
+
         lines = ["📚 <b>Courses</b>"]
         for c in courses:
-            lines.append(f"{c['id']}. {c['title']} | Paid: {c['is_paid']} | Featured: {c['is_featured']}")
-        await update.message.reply_text("\n".join(lines[:120]), parse_mode=ParseMode.HTML)
+            lines.append(
+                f"{c['id']}. {c['title']} | Paid: {c['is_paid']} | Featured: {c['is_featured']} | Active: {c.get('is_active', True)}"
+            )
+
+        text = "\n".join(lines)
+        if len(text) > 3800:
+            text = text[:3800] + "\n..."
+
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def feature(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         user = update.effective_user
         if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+            if update.message:
+                await update.message.reply_text("❌ Admin only command.")
+            return
+
+        if not update.message or not update.message.text:
             return
 
         text = update.message.text.replace("/feature", "", 1).strip()
@@ -490,9 +566,14 @@ class BotHandlers:
 
     async def unfeature(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         user = update.effective_user
         if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+            if update.message:
+                await update.message.reply_text("❌ Admin only command.")
+            return
+
+        if not update.message or not update.message.text:
             return
 
         text = update.message.text.replace("/unfeature", "", 1).strip()
@@ -505,9 +586,14 @@ class BotHandlers:
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         user = update.effective_user
         if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+            if update.message:
+                await update.message.reply_text("❌ Admin only command.")
+            return
+
+        if not update.message:
             return
 
         s = self.db.get_stats()
@@ -536,13 +622,22 @@ class BotHandlers:
         for row in s["top_clicked"]:
             lines.append(f"• {row['title']} — {row['ccount']}")
 
-        await update.message.reply_text("\n".join(lines[:180]), parse_mode=ParseMode.HTML)
+        text = "\n".join(lines)
+        if len(text) > 3800:
+            text = text[:3800] + "\n..."
+
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def grant(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         user = update.effective_user
         if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+            if update.message:
+                await update.message.reply_text("❌ Admin only command.")
+            return
+
+        if not update.message:
             return
 
         args = context.args
@@ -550,8 +645,13 @@ class BotHandlers:
             await update.message.reply_text("Usage: /grant user_id course_id")
             return
 
-        target_user_id = int(args[0])
-        course_id = int(args[1])
+        try:
+            target_user_id = int(args[0])
+            course_id = int(args[1])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid user_id or course_id.")
+            return
+
         course = self.db.get_course(course_id)
         if not course:
             await update.message.reply_text("Course not found.")

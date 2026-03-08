@@ -5,11 +5,15 @@ from db import Database
 def import_courses_from_csv(db: Database, csv_path: str) -> int:
     count = 0
 
-    with open(csv_path, "r", encoding="utf-8") as f:
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
 
         for row in reader:
-            keywords = [k.strip() for k in row.get("keywords", "").split(",") if k.strip()]
+            keywords = [
+                k.strip()
+                for k in (row.get("keywords") or "").split(",")
+                if k.strip()
+            ]
 
             db.add_course(
                 title=row.get("title", "").strip(),
@@ -22,8 +26,8 @@ def import_courses_from_csv(db: Database, csv_path: str) -> int:
                 demo_url=row.get("demo_url", "").strip(),
                 contact_url=row.get("contact_url", "").strip(),
                 premium_channel_link=row.get("premium_channel_link", "").strip(),
-                is_featured=str(row.get("is_featured", "0")).strip() in ("1", "true", "True"),
-                is_paid=str(row.get("is_paid", "0")).strip() in ("1", "true", "True"),
+                is_featured=str(row.get("is_featured", "0")).strip() in ("1", "true", "True", "yes", "YES"),
+                is_paid=str(row.get("is_paid", "0")).strip() in ("1", "true", "True", "yes", "YES"),
                 price=row.get("price", "").strip(),
                 keywords=keywords,
             )
