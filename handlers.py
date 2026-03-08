@@ -301,29 +301,30 @@ class BotHandlers:
     ]
 
     course_id = self.db.add_course(
-        title=fields.get("title", ""),
-        instructor=fields.get("instructor", ""),
-        category=fields.get("category", ""),
-        description=fields.get("description", ""),
-        thumbnail_url=fields.get("thumbnail", ""),
-        download_url=fields.get("download", ""),
-        how_to_download_url=fields.get("howtodownload", ""),
-        demo_url=fields.get("demo", ""),
-        contact_url=fields.get("contact", ""),
-        premium_channel_link=fields.get("premiumlink", ""),
-        is_featured=int(fields.get("featured", "0")),
-        is_paid=int(fields.get("paid", "0")),
-        price=fields.get("price", ""),
-        keywords=keywords,
-    )
+            title=fields.get("title"),
+            instructor=fields.get("instructor"),
+            category=fields.get("category"),
+            description=fields.get("description"),
+            thumbnail_url=fields.get("thumbnail", ""),
+            download_url=fields.get("download", ""),
+            how_to_download_url=fields.get("howtodownload", ""),
+            demo_url=fields.get("demo", ""),
+            contact_url=fields.get("contact", ""),
+            premium_channel_link=fields.get("premiumlink", ""),
+            is_featured=int(fields.get("featured", "0")),
+            is_paid=int(fields.get("paid", "0")),
+            price=fields.get("price", ""),
+            keywords=keywords,
+        )
 
-    await update.message.reply_text(
-        f"✅ Course Added Successfully\n\n"
-        f"📚 Title: {fields.get('title')}\n"
-        f"👨‍🏫 Instructor: {fields.get('instructor')}\n"
-        f"🗂 Category: {fields.get('category')}\n"
-        f"🆔 Course ID: {course_id}"
-    )
+        await update.message.reply_text(
+            f"✅ Course Added Successfully\n\n"
+            f"📚 Title: {fields.get('title')}\n"
+            f"🧑‍🏫 Instructor: {fields.get('instructor')}\n"
+            f"📁 Category: {fields.get('category')}\n"
+            f"🆔 Course ID: {course_id}"
+        )
+        
 
     async def importcsv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
