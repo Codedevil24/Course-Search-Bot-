@@ -324,7 +324,6 @@ class BotHandlers:
         f"🗂 Category: {fields.get('category')}\n"
         f"🆔 Course ID: {course_id}"
     )
-        await update.message.reply_text(f"✅ Course added successfully. ID: {course_id}")
 
     async def importcsv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
