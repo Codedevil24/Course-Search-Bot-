@@ -273,7 +273,7 @@ class BotHandlers:
         await update.inline_query.answer(inline_results, cache_time=1)
 
     async def addcourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    self.track_user(update)
+        self.track_user(update)
 
     user = update.effective_user
     if not user or not is_admin(user.id):
