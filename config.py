@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", "").strip()
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", "postgresql://postgres:CodeDevil54123%40%2312@db.keneqpwmowzvilsycfuv.supabase.co:5432/postgres").strip()
 MAIN_CHANNEL_URL = os.getenv("MAIN_CHANNEL_URL", "https://t.me/Code_Devil")
 PLAYLISTS_URL = os.getenv("PLAYLISTS_URL", "https://t.me/addlist/wTBxgyESacMwMDA1")
 SUPPORT_CONTACT_URL = os.getenv("SUPPORT_CONTACT_URL", "https://t.me/Code_Devil")
