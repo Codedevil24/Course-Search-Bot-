@@ -273,36 +273,33 @@ class BotHandlers:
         await update.inline_query.answer(inline_results, cache_time=1)
 
     async def addcourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    self.track_user(update)
-
-    user = update.effective_user
-    if not user or not is_admin(user.id):
-        await update.message.reply_text("❌ Admin only command.")
-        return
-
-    text = update.message.text.replace("/addcourse", "").strip()
-
-    fields = {}
-
-    for line in text.split("\n"):
-        if ":" in line:
-            key, value = line.split(":", 1)
-            fields[key.strip().lower()] = value.strip()
-
-    required = ["title", "instructor", "category", "description"]
-
-    for r in required:
-        if r not in fields:
-            await update.message.reply_text(f"❌ Missing field: {r}")
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            await update.message.reply_text("❌ Admin only command.")
             return
+        text = update.message.text.replace("/addcourse", "").strip()
+        fields = {}
+        
+        for line in text.split("\n"):
+            if ":" in line:
+                key, value = line.split(":", 1)
+                fields[key.strip().lower()] = value.strip()
 
-    keywords = [
-        k.strip()
-        for k in fields.get("keywords", "").split(",")
-        if k.strip()
+        required = ["title", "instructor", "category", "description"]
+
+        for r in required:
+            if r not in fields:
+                await update.message.reply_text(f"❌ Missing field: {r}")
+                return
+        
+        keywords = [
+          k.strip()
+          for k in fields.get("keywords", "").split(",")
+          if k.strip()
     ]
 
-    course_id = self.db.add_course(
+        course_id = self.db.add_course(
         title=fields.get("title"),
         instructor=fields.get("instructor"),
         category=fields.get("category"),
@@ -319,7 +316,7 @@ class BotHandlers:
         keywords=keywords,
     )
 
-    await update.message.reply_text(
+        await update.message.reply_text(
         f"✅ Course Added Successfully\n\n"
         f"📚 Title: {fields.get('title')}\n"
         f"🧑‍🏫 Instructor: {fields.get('instructor')}\n"
