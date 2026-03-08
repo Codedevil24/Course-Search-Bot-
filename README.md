@@ -1,16 +1,16 @@
-# Code Devil Course Search Bot v1
+# Code Devil Course Bot v2
 
 ## Features
-- `/search <keyword>`
-- text-based search
-- inline button results
-- category browse
-- featured courses
-- admin course management
-- SQLite database
+- Search by command and normal text
+- Thumbnails
+- Paid / free course flow
+- Typo suggestions
+- Inline search
+- Premium channel unlock
+- Analytics
+- CSV import ready
 
-## Setup
-
-### 1. Install dependencies
-```bash
+## Run
 pip install -r requirements.txt
+Create .env
+python app.py

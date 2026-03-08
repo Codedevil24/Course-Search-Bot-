@@ -25,9 +25,15 @@ class Database:
                 instructor TEXT,
                 category TEXT,
                 description TEXT,
-                download_url TEXT NOT NULL,
+                thumbnail_url TEXT,
+                download_url TEXT,
                 how_to_download_url TEXT,
+                demo_url TEXT,
+                contact_url TEXT,
+                premium_channel_link TEXT,
                 is_featured INTEGER DEFAULT 0,
+                is_paid INTEGER DEFAULT 0,
+                price TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
@@ -53,6 +59,30 @@ class Database:
             );
             """)
 
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS course_clicks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                username TEXT,
+                course_id INTEGER,
+                action_type TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS purchases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                username TEXT,
+                course_id INTEGER,
+                status TEXT DEFAULT 'pending',
+                payment_note TEXT,
+                approved_by INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+
             conn.commit()
 
     def add_course(
@@ -61,16 +91,31 @@ class Database:
         instructor: str,
         category: str,
         description: str,
+        thumbnail_url: str,
         download_url: str,
         how_to_download_url: str,
+        demo_url: str,
+        contact_url: str,
+        premium_channel_link: str,
+        is_featured: int,
+        is_paid: int,
+        price: str,
         keywords: list[str],
     ) -> int:
         with closing(self.get_conn()) as conn:
             cur = conn.cursor()
             cur.execute("""
-                INSERT INTO courses (title, instructor, category, description, download_url, how_to_download_url)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (title, instructor, category, description, download_url, how_to_download_url))
+                INSERT INTO courses (
+                    title, instructor, category, description, thumbnail_url,
+                    download_url, how_to_download_url, demo_url, contact_url,
+                    premium_channel_link, is_featured, is_paid, price
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                title, instructor, category, description, thumbnail_url,
+                download_url, how_to_download_url, demo_url, contact_url,
+                premium_channel_link, is_featured, is_paid, price
+            ))
             course_id = cur.lastrowid
 
             for kw in keywords:
@@ -84,22 +129,34 @@ class Database:
             conn.commit()
             return course_id
 
-    def update_course(
+    def update_course_basic(
         self,
         course_id: int,
         title: str,
         instructor: str,
         category: str,
         description: str,
+        thumbnail_url: str,
         download_url: str,
         how_to_download_url: str,
+        demo_url: str,
+        contact_url: str,
+        premium_channel_link: str,
+        is_paid: int,
+        price: str,
     ):
         with closing(self.get_conn()) as conn:
             conn.execute("""
                 UPDATE courses
-                SET title=?, instructor=?, category=?, description=?, download_url=?, how_to_download_url=?, updated_at=CURRENT_TIMESTAMP
+                SET title=?, instructor=?, category=?, description=?, thumbnail_url=?,
+                    download_url=?, how_to_download_url=?, demo_url=?, contact_url=?,
+                    premium_channel_link=?, is_paid=?, price=?, updated_at=CURRENT_TIMESTAMP
                 WHERE id=?
-            """, (title, instructor, category, description, download_url, how_to_download_url, course_id))
+            """, (
+                title, instructor, category, description, thumbnail_url,
+                download_url, how_to_download_url, demo_url, contact_url,
+                premium_channel_link, is_paid, price, course_id
+            ))
             conn.commit()
 
     def delete_course(self, course_id: int):
@@ -150,6 +207,11 @@ class Database:
             """).fetchall()
             return [r[0] for r in rows]
 
+    def get_all_keywords(self) -> list[str]:
+        with closing(self.get_conn()) as conn:
+            rows = conn.execute("SELECT keyword FROM course_keywords").fetchall()
+            return [r["keyword"] for r in rows]
+
     def log_search(self, user_id: int | None, username: str, query: str, matched_count: int):
         with closing(self.get_conn()) as conn:
             conn.execute("""
@@ -158,11 +220,38 @@ class Database:
             """, (user_id, username, query, matched_count))
             conn.commit()
 
+    def log_click(self, user_id: int | None, username: str, course_id: int, action_type: str):
+        with closing(self.get_conn()) as conn:
+            conn.execute("""
+                INSERT INTO course_clicks (user_id, username, course_id, action_type)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, username, course_id, action_type))
+            conn.commit()
+
+    def add_purchase(self, user_id: int, username: str, course_id: int, payment_note: str = ""):
+        with closing(self.get_conn()) as conn:
+            conn.execute("""
+                INSERT INTO purchases (user_id, username, course_id, payment_note)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, username, course_id, payment_note))
+            conn.commit()
+
+    def approve_purchase(self, user_id: int, course_id: int, approved_by: int):
+        with closing(self.get_conn()) as conn:
+            conn.execute("""
+                UPDATE purchases
+                SET status='approved', approved_by=?
+                WHERE user_id=? AND course_id=?
+            """, (approved_by, user_id, course_id))
+            conn.commit()
+
     def get_stats(self) -> dict[str, Any]:
         with closing(self.get_conn()) as conn:
             total_courses = conn.execute("SELECT COUNT(*) FROM courses").fetchone()[0]
             total_searches = conn.execute("SELECT COUNT(*) FROM search_logs").fetchone()[0]
-            popular = conn.execute("""
+            total_paid = conn.execute("SELECT COUNT(*) FROM courses WHERE is_paid=1").fetchone()[0]
+
+            popular_queries = conn.execute("""
                 SELECT query, COUNT(*) as c
                 FROM search_logs
                 GROUP BY query
@@ -170,10 +259,31 @@ class Database:
                 LIMIT 10
             """).fetchall()
 
+            zero_results = conn.execute("""
+                SELECT query, COUNT(*) as c
+                FROM search_logs
+                WHERE matched_count=0
+                GROUP BY query
+                ORDER BY c DESC
+                LIMIT 10
+            """).fetchall()
+
+            top_clicked = conn.execute("""
+                SELECT c.title, COUNT(*) as ccount
+                FROM course_clicks cc
+                JOIN courses c ON c.id = cc.course_id
+                GROUP BY cc.course_id
+                ORDER BY ccount DESC
+                LIMIT 10
+            """).fetchall()
+
             return {
                 "total_courses": total_courses,
                 "total_searches": total_searches,
-                "popular_queries": [dict(r) for r in popular],
+                "total_paid_courses": total_paid,
+                "popular_queries": [dict(r) for r in popular_queries],
+                "zero_results": [dict(r) for r in zero_results],
+                "top_clicked": [dict(r) for r in top_clicked],
             }
 
     def search_courses(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -200,62 +310,23 @@ class Database:
                 course.get("description", "") or "",
             ] + keyword_map.get(course["id"], [])
 
-            haystack = " | ".join(searchable_parts).lower()
             score = 0.0
+            haystack = " | ".join(searchable_parts).lower()
 
             if q in haystack:
-                score += 100
+                score += 120
 
             for part in searchable_parts:
                 p = part.lower()
                 if q == p:
-                    score += 120
+                    score += 150
                 elif q in p:
-                    score += 50
+                    score += 60
                 else:
-                    ratio = SequenceMatcher(None, q, p).ratio()
-                    score += ratio * 20
+                    score += SequenceMatcher(None, q, p).ratio() * 25
 
             if score > 20:
                 scored.append((score, course))
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return [course for _, course in scored[:limit]]
-
-    def seed_demo_data(self):
-        existing = self.list_courses(limit=1)
-        if existing:
-            return
-
-        self.add_course(
-            title="Complete 2025 Python Bootcamp – Learn Python from Scratch",
-            instructor="CodeWithHarry",
-            category="Python",
-            description="Python basics se advanced tak complete bootcamp.",
-            download_url="https://gplinks.co/Udemy_python_codewithharry",
-            how_to_download_url="https://youtu.be/_p_SeBnl-xE?si=cgjhCJVNP6O-luir",
-            keywords=["python", "python bootcamp", "learn python", "codewithharry python"],
-        )
-
-        self.add_course(
-            title="CampusX – Data Analysis Using Power BI",
-            instructor="CampusX",
-            category="Data Analysis",
-            description="Power BI ke through data analysis course.",
-            download_url="https://gplinks.co/CampusX_powerbi",
-            how_to_download_url="https://youtu.be/_p_SeBnl-xE?si=cgjhCJVNP6O-luir",
-            keywords=["campusx powerbi", "power bi", "data analysis", "powerbi course"],
-        )
-
-        self.add_course(
-            title="Bitten Tech – Complete Offensive Pentesting Course",
-            instructor="Bitten Tech",
-            category="Cyber Security",
-            description="Offensive pentesting and cyber security focused course.",
-            download_url="https://gplinks.co/Bitten_tech_OSCP",
-            how_to_download_url="https://youtu.be/_p_SeBnl-xE?si=cgjhCJVNP6O-luir",
-            keywords=["pentesting", "oscp", "cyber security", "bitten tech"],
-        )
-
-        self.set_featured(1, 1)
-        self.set_featured(2, 1)

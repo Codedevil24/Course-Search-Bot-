@@ -4,13 +4,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-DB_PATH = os.getenv("DB_PATH", "courses.db")
+DB_PATH = os.getenv("DB_PATH", "courses_v2.db")
 MAIN_CHANNEL_URL = os.getenv("MAIN_CHANNEL_URL", "https://t.me/Code_Devil")
 PLAYLISTS_URL = os.getenv("PLAYLISTS_URL", "https://t.me/addlist/wTBxgyESacMwMDA1")
+SUPPORT_CONTACT_URL = os.getenv("SUPPORT_CONTACT_URL", "https://t.me/YourUsername")
+PREMIUM_CHANNEL_LINK = os.getenv("PREMIUM_CHANNEL_LINK", "")
+INLINE_PLACEHOLDER = os.getenv("INLINE_PLACEHOLDER", "Search courses...")
 
 ADMIN_IDS = {
     int(x.strip())
     for x in os.getenv("ADMIN_IDS", "").split(",")
     if x.strip().isdigit()
 }
-

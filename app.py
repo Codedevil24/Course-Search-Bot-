@@ -5,6 +5,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
+    InlineQueryHandler,
     filters,
 )
 
@@ -18,36 +19,74 @@ logging.basicConfig(
 )
 
 
+def seed_data(db: Database):
+    if db.list_courses(limit=1):
+        return
+
+    db.add_course(
+        title="Codebasics – Deep Learning: Beginner to Advanced",
+        instructor="Codebasics",
+        category="AI / Deep Learning",
+        description="Deep learning course from beginner to advanced.",
+        thumbnail_url="https://dummyimage.com/600x400/000/fff&text=Deep+Learning",
+        download_url="https://gplinks.co/Codebasics_deeplearning",
+        how_to_download_url="https://youtu.be/_p_SeBnl-xE?si=cgjhCJVNP6O-luir",
+        demo_url="",
+        contact_url="https://t.me/YourUsername",
+        premium_channel_link="",
+        is_featured=1,
+        is_paid=0,
+        price="",
+        keywords=["deep learning", "codebasics dl", "codebasics deep learning"],
+    )
+
+    db.add_course(
+        title="Code Devil Premium Full Stack Course",
+        instructor="Code Devil",
+        category="Web Development",
+        description="Premium full stack course with project support.",
+        thumbnail_url="https://dummyimage.com/600x400/111/fff&text=Premium+Full+Stack",
+        download_url="",
+        how_to_download_url="",
+        demo_url="https://t.me/Code_Devil",
+        contact_url="https://t.me/YourUsername",
+        premium_channel_link="https://t.me/+your_private_invite",
+        is_featured=1,
+        is_paid=1,
+        price="₹999",
+        keywords=["code devil premium", "premium full stack", "codedevil course"],
+    )
+
+
 def main():
     if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN missing. Please set it in .env")
+        raise ValueError("BOT_TOKEN missing in .env")
 
     db = Database(DB_PATH)
     db.init_db()
-    db.seed_demo_data()
+    seed_data(db)
 
-    bot_handlers = BotHandlers(db)
+    h = BotHandlers(db)
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", bot_handlers.start))
-    app.add_handler(CommandHandler("help", bot_handlers.help_command))
-    app.add_handler(CommandHandler("search", bot_handlers.search_command))
-    app.add_handler(CommandHandler("categories", bot_handlers.categories))
-    app.add_handler(CommandHandler("featured", bot_handlers.featured))
+    app.add_handler(CommandHandler("start", h.start))
+    app.add_handler(CommandHandler("help", h.help_command))
+    app.add_handler(CommandHandler("search", h.search_command))
+    app.add_handler(CommandHandler("categories", h.categories))
+    app.add_handler(CommandHandler("featured", h.featured))
+    app.add_handler(CommandHandler("deletecourse", h.deletecourse))
+    app.add_handler(CommandHandler("listcourses", h.listcourses))
+    app.add_handler(CommandHandler("feature", h.feature))
+    app.add_handler(CommandHandler("unfeature", h.unfeature))
+    app.add_handler(CommandHandler("stats", h.stats))
+    app.add_handler(CommandHandler("grant", h.grant))
 
-    app.add_handler(CommandHandler("addcourse", bot_handlers.addcourse))
-    app.add_handler(CommandHandler("editcourse", bot_handlers.editcourse))
-    app.add_handler(CommandHandler("deletecourse", bot_handlers.deletecourse))
-    app.add_handler(CommandHandler("listcourses", bot_handlers.listcourses))
-    app.add_handler(CommandHandler("feature", bot_handlers.feature))
-    app.add_handler(CommandHandler("unfeature", bot_handlers.unfeature))
-    app.add_handler(CommandHandler("stats", bot_handlers.stats))
+    app.add_handler(CallbackQueryHandler(h.button_handler))
+    app.add_handler(InlineQueryHandler(h.inline_query))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, h.text_search))
 
-    app.add_handler(CallbackQueryHandler(bot_handlers.button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot_handlers.text_search))
-
-    print("Bot is running...")
+    print("Bot v2 is running...")
     app.run_polling(drop_pending_updates=True)
 
 
