@@ -4,12 +4,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-DB_PATH = os.getenv("DB_PATH", "courses_v2_1.db")
+DB_PATH = os.getenv("DB_PATH", "courses_v2_2.db")
 MAIN_CHANNEL_URL = os.getenv("MAIN_CHANNEL_URL", "https://t.me/Code_Devil")
 PLAYLISTS_URL = os.getenv("PLAYLISTS_URL", "https://t.me/addlist/wTBxgyESacMwMDA1")
 SUPPORT_CONTACT_URL = os.getenv("SUPPORT_CONTACT_URL", "https://t.me/YourUsername")
 PREMIUM_CHANNEL_LINK = os.getenv("PREMIUM_CHANNEL_LINK", "")
-INLINE_PLACEHOLDER = os.getenv("INLINE_PLACEHOLDER", "Search courses...")
+PORT = int(os.getenv("PORT", "10000"))
 
 ADMIN_IDS = {
     int(x.strip())

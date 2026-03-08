@@ -153,6 +153,15 @@ class Database:
             conn.commit()
             return course_id
 
+    def update_course_thumbnail(self, course_id: int, thumbnail_file_id: str):
+        with closing(self.get_conn()) as conn:
+            conn.execute("""
+                UPDATE courses
+                SET thumbnail_url=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+            """, (thumbnail_file_id, course_id))
+            conn.commit()
+
     def delete_course(self, course_id: int):
         with closing(self.get_conn()) as conn:
             conn.execute("DELETE FROM courses WHERE id=?", (course_id,))

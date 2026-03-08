@@ -63,7 +63,8 @@ class BotHandlers:
             "• /unfeature\n"
             "• /stats\n"
             "• /grant\n"
-            "• /importcsv"
+            "• /importcsv\n"
+            "• reply me photo bhejo to thumbnail save ho jayega"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -133,19 +134,25 @@ class BotHandlers:
 
     async def send_course_card(self, update: Update, course: dict):
         caption = format_course_caption(course)
-        if course.get("thumbnail_url"):
-            await update.message.reply_photo(
-                photo=course["thumbnail_url"],
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-                reply_markup=course_keyboard(course),
-            )
-        else:
-            await update.message.reply_text(
-                caption,
-                parse_mode=ParseMode.HTML,
-                reply_markup=course_keyboard(course),
-            )
+        thumbnail = course.get("thumbnail_url")
+
+        if thumbnail:
+            try:
+                await update.message.reply_photo(
+                    photo=thumbnail,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=course_keyboard(course),
+                )
+                return
+            except Exception:
+                pass
+
+        await update.message.reply_text(
+            caption,
+            parse_mode=ParseMode.HTML,
+            reply_markup=course_keyboard(course),
+        )
 
     async def text_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
@@ -157,15 +164,11 @@ class BotHandlers:
         if len(text) < 2:
             return
         await self.run_search(update, context, text)
-        
-#button handler
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         query = update.callback_query
         await query.answer()
-
         data = query.data or ""
         user = update.effective_user
 
@@ -186,25 +189,23 @@ class BotHandlers:
                 )
 
                 caption = format_course_caption(course)
+                thumbnail = course.get("thumbnail_url")
 
-                # Thumbnail ho to photo bhejo
-                if course.get("thumbnail_url"):
+                if thumbnail:
                     try:
                         await query.message.reply_photo(
-                            photo=course["thumbnail_url"],
+                            photo=thumbnail,
                             caption=caption,
                             parse_mode=ParseMode.HTML,
                             reply_markup=course_keyboard(course),
                         )
                     except Exception:
-                        # Agar thumbnail invalid ho to text fallback
                         await query.message.reply_text(
                             caption,
                             parse_mode=ParseMode.HTML,
                             reply_markup=course_keyboard(course),
                         )
                 else:
-                    # Blank thumbnail ho to normal text message bhejo
                     await query.message.reply_text(
                         caption,
                         parse_mode=ParseMode.HTML,
@@ -245,13 +246,11 @@ class BotHandlers:
             if data.startswith("premium::"):
                 course_id = int(data.split("::", 1)[1])
                 course = self.db.get_course(course_id)
-
                 if not course:
                     await query.message.reply_text("❌ Course not found.")
                     return
 
                 link = course.get("premium_channel_link") or PREMIUM_CHANNEL_LINK or "Not configured"
-
                 await query.message.reply_text(
                     f"🔓 Premium access manual approval based hai.\n\n"
                     f"Course: {course['title']}\n"
@@ -262,7 +261,6 @@ class BotHandlers:
 
             if data == "featured::all":
                 results = self.db.get_featured_courses(limit=20)
-
                 if not results:
                     await query.message.reply_text("❌ No featured courses found.")
                     return
@@ -318,13 +316,15 @@ class BotHandlers:
 
     async def addcourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         user = update.effective_user
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
             return
+
         text = update.message.text.replace("/addcourse", "").strip()
         fields = {}
-        
+
         for line in text.split("\n"):
             if ":" in line:
                 key, value = line.split(":", 1)
@@ -336,38 +336,88 @@ class BotHandlers:
             if r not in fields:
                 await update.message.reply_text(f"❌ Missing field: {r}")
                 return
-        
+
         keywords = [
-          k.strip()
-          for k in fields.get("keywords", "").split(",")
-          if k.strip()
-    ]
+            k.strip()
+            for k in fields.get("keywords", "").split(",")
+            if k.strip()
+        ]
 
         course_id = self.db.add_course(
-        title=fields.get("title"),
-        instructor=fields.get("instructor"),
-        category=fields.get("category"),
-        description=fields.get("description"),
-        thumbnail_url=fields.get("thumbnail", ""),
-        download_url=fields.get("download", ""),
-        how_to_download_url=fields.get("howtodownload", ""),
-        demo_url=fields.get("demo", ""),
-        contact_url=fields.get("contact", ""),
-        premium_channel_link=fields.get("premiumlink", ""),
-        is_featured=int(fields.get("featured", "0")),
-        is_paid=int(fields.get("paid", "0")),
-        price=fields.get("price", ""),
-        keywords=keywords,
-    )
+            title=fields.get("title"),
+            instructor=fields.get("instructor"),
+            category=fields.get("category"),
+            description=fields.get("description"),
+            thumbnail_url=fields.get("thumbnail", ""),
+            download_url=fields.get("download", ""),
+            how_to_download_url=fields.get("howtodownload", ""),
+            demo_url=fields.get("demo", ""),
+            contact_url=fields.get("contact", ""),
+            premium_channel_link=fields.get("premiumlink", ""),
+            is_featured=int(fields.get("featured", "0")),
+            is_paid=int(fields.get("paid", "0")),
+            price=fields.get("price", ""),
+            keywords=keywords,
+        )
 
         await update.message.reply_text(
-        f"✅ Course Added Successfully\n\n"
-        f"📚 Title: {fields.get('title')}\n"
-        f"🧑‍🏫 Instructor: {fields.get('instructor')}\n"
-        f"📁 Category: {fields.get('category')}\n"
-        f"🆔 Course ID: {course_id}"
-    )
-        
+            f"✅ Course Added Successfully\n\n"
+            f"📚 Title: {fields.get('title')}\n"
+            f"🧑‍🏫 Instructor: {fields.get('instructor')}\n"
+            f"📁 Category: {fields.get('category')}\n"
+            f"🆔 Course ID: {course_id}\n\n"
+            f"Thumbnail add karne ke liye is message ke reply me photo bhejo."
+        )
+
+    async def save_thumbnail(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            await update.message.reply_text("❌ Admin only command.")
+            return
+
+        if not update.message or not update.message.photo:
+            await update.message.reply_text("❌ Please send a photo.")
+            return
+
+        if not update.message.reply_to_message:
+            return
+
+        replied_text = update.message.reply_to_message.text or ""
+        course_id = None
+
+        for line in replied_text.split("\n"):
+            if "Course ID:" in line:
+                try:
+                    course_id = int(line.split("Course ID:")[1].strip())
+                except Exception:
+                    course_id = None
+                break
+            if "🆔 Course ID:" in line:
+                try:
+                    course_id = int(line.split("🆔 Course ID:")[1].strip())
+                except Exception:
+                    course_id = None
+                break
+
+        if not course_id:
+            await update.message.reply_text("❌ Reply message se Course ID nahi mila.")
+            return
+
+        course = self.db.get_course(course_id)
+        if not course:
+            await update.message.reply_text("❌ Course not found.")
+            return
+
+        largest_photo = update.message.photo[-1]
+        file_id = largest_photo.file_id
+
+        self.db.update_course_thumbnail(course_id, file_id)
+
+        await update.message.reply_text(
+            f"✅ Thumbnail saved successfully for course ID: {course_id}"
+        )
 
     async def importcsv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
@@ -399,6 +449,7 @@ class BotHandlers:
         if not text.isdigit():
             await update.message.reply_text("Usage: /deletecourse 3")
             return
+
         self.db.delete_course(int(text))
         await update.message.reply_text("🗑 Deleted.")
 
@@ -421,10 +472,12 @@ class BotHandlers:
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
             return
+
         text = update.message.text.replace("/feature", "", 1).strip()
         if not text.isdigit():
             await update.message.reply_text("Usage: /feature 2")
             return
+
         self.db.set_featured(int(text), 1)
         await update.message.reply_text("⭐ Featured enabled.")
 
@@ -434,10 +487,12 @@ class BotHandlers:
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
             return
+
         text = update.message.text.replace("/unfeature", "", 1).strip()
         if not text.isdigit():
             await update.message.reply_text("Usage: /unfeature 2")
             return
+
         self.db.set_featured(int(text), 0)
         await update.message.reply_text("✅ Featured removed.")
 
@@ -460,6 +515,7 @@ class BotHandlers:
             "",
             "🔥 Top Queries:",
         ]
+
         for row in s["popular_queries"]:
             lines.append(f"• {row['query']} — {row['c']}")
 

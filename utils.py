@@ -7,8 +7,7 @@ def is_admin(user_id: int) -> bool:
 
 
 def suggest_keyword(query: str, all_keywords: list[str]) -> list[str]:
-    query = query.strip().lower()
-    return get_close_matches(query, all_keywords, n=5, cutoff=0.5)
+    return get_close_matches(query.strip().lower(), all_keywords, n=5, cutoff=0.5)
 
 
 def format_course_caption(course: dict) -> str:

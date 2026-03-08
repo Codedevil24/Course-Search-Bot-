@@ -1,19 +1,7 @@
-import logging
 import os
 import threading
+import logging
 from flask import Flask
-
-web_app = Flask(__name__)
-
-@web_app.route("/")
-def home():
-    return "Bot is running!"
-
-def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    web_app.run(host="0.0.0.0", port=port)
-
-# existing imports and bot code...
 
 from telegram.ext import (
     Application,
@@ -24,7 +12,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import BOT_TOKEN, DB_PATH
+from config import BOT_TOKEN, DB_PATH, PORT
 from db import Database
 from handlers import BotHandlers
 
@@ -32,6 +20,15 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+
+web_app = Flask(__name__)
+
+@web_app.route("/")
+def home():
+    return "Bot is running!"
+
+def run_web():
+    web_app.run(host="0.0.0.0", port=PORT)
 
 
 def seed_data(db: Database):
@@ -101,9 +98,10 @@ def main():
 
     app.add_handler(CallbackQueryHandler(h.button_handler))
     app.add_handler(InlineQueryHandler(h.inline_query))
+    app.add_handler(MessageHandler(filters.PHOTO, h.save_thumbnail))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, h.text_search))
 
-    print("Bot v2.1 is running...")
+    print("Bot v2.2 is running...")
     app.run_polling(drop_pending_updates=True)
 
 
