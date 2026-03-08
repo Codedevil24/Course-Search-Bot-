@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from typing import Any
-import psycopg2
-import psycopg2.extras
+import psycopg
+import psycopg.rows import dict_row
 
 from config import SUPABASE_DB_URL
 
@@ -14,7 +14,7 @@ class Database:
             raise ValueError("SUPABASE_DB_URL missing in environment")
 
     def get_conn(self):
-        return psycopg2.connect(self.db_url)
+        return psycopg.connect(self.db_url,row_factory=dict_row)
 
     def init_db(self):
         with self.get_conn() as conn:
