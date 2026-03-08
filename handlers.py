@@ -273,46 +273,57 @@ class BotHandlers:
         await update.inline_query.answer(inline_results, cache_time=1)
 
     async def addcourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self.track_user(update)
-        user = update.effective_user
-        if not user or not is_admin(user.id):
-            await update.message.reply_text("❌ Admin only command.")
+    self.track_user(update)
+
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        await update.message.reply_text("❌ Admin only command.")
+        return
+
+    text = update.message.text.replace("/addcourse", "").strip()
+
+    fields = {}
+
+    for line in text.split("\n"):
+        if ":" in line:
+            key, value = line.split(":", 1)
+            fields[key.strip().lower()] = value.strip()
+
+    required = ["title", "instructor", "category", "description"]
+
+    for r in required:
+        if r not in fields:
+            await update.message.reply_text(f"❌ Missing field: {r}")
             return
 
-        raw = update.message.text.replace("/addcourse", "", 1).strip()
-        parts = [p.strip() for p in raw.split("||")]
+    keywords = [
+        k.strip() for k in fields.get("keywords", "").split(",") if k.strip()
+    ]
 
-        if len(parts) != 14:
-            await update.message.reply_text(
-                "Format:\n"
-                "/addcourse title || instructor || category || description || thumbnail_url || download_url || how_to_download_url || demo_url || contact_url || premium_channel_link || is_featured(0/1) || is_paid(0/1) || price || keyword1,keyword2,keyword3"
-            )
-            return
+    course_id = self.db.add_course(
+        title=fields.get("title", ""),
+        instructor=fields.get("instructor", ""),
+        category=fields.get("category", ""),
+        description=fields.get("description", ""),
+        thumbnail_url=fields.get("thumbnail", ""),
+        download_url=fields.get("download", ""),
+        how_to_download_url=fields.get("howtodownload", ""),
+        demo_url=fields.get("demo", ""),
+        contact_url=fields.get("contact", ""),
+        premium_channel_link=fields.get("premiumlink", ""),
+        is_featured=int(fields.get("featured", "0")),
+        is_paid=int(fields.get("paid", "0")),
+        price=fields.get("price", ""),
+        keywords=keywords,
+    )
 
-        (
-            title, instructor, category, description, thumbnail_url,
-            download_url, how_to_download_url, demo_url, contact_url,
-            premium_channel_link, is_featured, is_paid, price, keywords_raw
-        ) = parts
-
-        keywords = [k.strip() for k in keywords_raw.split(",") if k.strip()]
-
-        course_id = self.db.add_course(
-            title=title,
-            instructor=instructor,
-            category=category,
-            description=description,
-            thumbnail_url=thumbnail_url,
-            download_url=download_url,
-            how_to_download_url=how_to_download_url,
-            demo_url=demo_url,
-            contact_url=contact_url,
-            premium_channel_link=premium_channel_link,
-            is_featured=int(is_featured),
-            is_paid=int(is_paid),
-            price=price,
-            keywords=keywords,
-        )
+    await update.message.reply_text(
+        f"✅ Course Added Successfully\n\n"
+        f"📚 Title: {fields.get('title')}\n"
+        f"👨‍🏫 Instructor: {fields.get('instructor')}\n"
+        f"🗂 Category: {fields.get('category')}\n"
+        f"🆔 Course ID: {course_id}"
+    )
         await update.message.reply_text(f"✅ Course added successfully. ID: {course_id}")
 
     async def importcsv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
