@@ -1,21 +1,13 @@
-from telegram import (
-    Update,
-    InlineQueryResultArticle,
-    InputTextMessageContent,
-)
+from telegram import Update, InlineQueryResultArticle, InputTextMessageContent
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from db import Database
-from keyboards import (
-    course_keyboard,
-    categories_keyboard,
-    search_results_keyboard,
-    suggestions_keyboard,
-)
+from keyboards import course_keyboard, categories_keyboard, search_results_keyboard, suggestions_keyboard
 from services import SearchService
 from utils import is_admin, format_course_caption
 from config import PREMIUM_CHANNEL_LINK
+from csv_importer import import_courses_from_csv
 
 
 class BotHandlers:
@@ -23,11 +15,27 @@ class BotHandlers:
         self.db = db
         self.search_service = SearchService(db)
 
+    def track_user(self, update: Update):
+        user = update.effective_user
+        if user:
+            self.db.upsert_user(
+                user_id=user.id,
+                username=user.username or "",
+                first_name=user.first_name or "",
+                last_name=user.last_name or "",
+            )
+
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         text = (
             "🚀 <b>Welcome to Code Devil Premium Course Bot</b>\n\n"
+            "Yahan aap direct course search kar sakte ho.\n\n"
+            "Examples:\n"
+            "• /search python\n"
+            "• /search flutter\n"
+            "• krish naik\n"
+            "• dsa\n\n"
             "Commands:\n"
-            "/search python\n"
             "/categories\n"
             "/featured\n"
             "/help"
@@ -39,24 +47,28 @@ class BotHandlers:
         )
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         text = (
             "📖 <b>Help</b>\n\n"
-            "User commands:\n"
+            "User:\n"
             "• /search &lt;keyword&gt;\n"
             "• /categories\n"
-            "• /featured\n\n"
-            "Admin commands:\n"
+            "• /featured\n"
+            "• normal text search bhi kaam karega\n\n"
+            "Admin:\n"
             "• /addcourse\n"
             "• /deletecourse\n"
             "• /listcourses\n"
             "• /feature\n"
             "• /unfeature\n"
             "• /stats\n"
-            "• /grant"
+            "• /grant\n"
+            "• /importcsv"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def featured(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         results = self.db.get_featured_courses()
         if not results:
             await update.message.reply_text("Abhi koi featured course nahi hai.")
@@ -69,6 +81,7 @@ class BotHandlers:
         )
 
     async def categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         cats = self.db.get_categories()
         await update.message.reply_text(
             "📚 <b>Categories</b>",
@@ -77,6 +90,7 @@ class BotHandlers:
         )
 
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         query = " ".join(context.args).strip()
         if not query:
             await update.message.reply_text("Usage:\n/search python")
@@ -134,6 +148,7 @@ class BotHandlers:
             )
 
     async def text_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         if not update.message or not update.message.text:
             return
         text = update.message.text.strip()
@@ -144,9 +159,11 @@ class BotHandlers:
         await self.run_search(update, context, text)
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         query = update.callback_query
         await query.answer()
         data = query.data or ""
+        user = update.effective_user
 
         if data.startswith("course::"):
             course_id = int(data.split("::", 1)[1])
@@ -154,6 +171,8 @@ class BotHandlers:
             if not course:
                 await query.edit_message_text("Course not found.")
                 return
+
+            self.db.log_click(user.id if user else None, user.username if user else "", course_id, "open_course")
 
             caption = format_course_caption(course)
             if course.get("thumbnail_url"):
@@ -216,6 +235,15 @@ class BotHandlers:
             )
 
     async def inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if user:
+            self.db.upsert_user(
+                user_id=user.id,
+                username=user.username or "",
+                first_name=user.first_name or "",
+                last_name=user.last_name or "",
+            )
+
         query = update.inline_query.query.strip()
         if not query:
             return
@@ -245,23 +273,69 @@ class BotHandlers:
         await update.inline_query.answer(inline_results, cache_time=1)
 
     async def addcourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         user = update.effective_user
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
             return
 
-        text = update.message.text.replace("/addcourse", "", 1).strip()
-        parts = [p.strip() for p in text.split("||")]
+        raw = update.message.text.replace("/addcourse", "", 1).strip()
+        parts = [p.strip() for p in raw.split("||")]
 
-        if len(parts) != 13:
+        if len(parts) != 14:
             await update.message.reply_text(
                 "Format:\n"
-                "/addcourse title || instructor || category || description || thumbnail_url || download_url || how_to_download_url || demo_url || contact_url || premium_channel_link || is_featured(0/1) || is_paid(0/1) || price || keywords\n\n"
-                "Note: last keywords part comma separated manually add karo after price by editing code if needed."
+                "/addcourse title || instructor || category || description || thumbnail_url || download_url || how_to_download_url || demo_url || contact_url || premium_channel_link || is_featured(0/1) || is_paid(0/1) || price || keyword1,keyword2,keyword3"
             )
             return
 
+        (
+            title, instructor, category, description, thumbnail_url,
+            download_url, how_to_download_url, demo_url, contact_url,
+            premium_channel_link, is_featured, is_paid, price, keywords_raw
+        ) = parts
+
+        keywords = [k.strip() for k in keywords_raw.split(",") if k.strip()]
+
+        course_id = self.db.add_course(
+            title=title,
+            instructor=instructor,
+            category=category,
+            description=description,
+            thumbnail_url=thumbnail_url,
+            download_url=download_url,
+            how_to_download_url=how_to_download_url,
+            demo_url=demo_url,
+            contact_url=contact_url,
+            premium_channel_link=premium_channel_link,
+            is_featured=int(is_featured),
+            is_paid=int(is_paid),
+            price=price,
+            keywords=keywords,
+        )
+        await update.message.reply_text(f"✅ Course added successfully. ID: {course_id}")
+
+    async def importcsv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            await update.message.reply_text("❌ Admin only command.")
+            return
+
+        args = context.args
+        if not args:
+            await update.message.reply_text("Usage:\n/importcsv sample_courses.csv")
+            return
+
+        csv_path = " ".join(args).strip()
+        try:
+            count = import_courses_from_csv(self.db, csv_path)
+            await update.message.reply_text(f"✅ Imported {count} courses from CSV.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ CSV import failed:\n{e}")
+
     async def deletecourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         user = update.effective_user
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
@@ -275,6 +349,7 @@ class BotHandlers:
         await update.message.reply_text("🗑 Deleted.")
 
     async def listcourses(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         user = update.effective_user
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
@@ -287,6 +362,7 @@ class BotHandlers:
         await update.message.reply_text("\n".join(lines[:120]), parse_mode=ParseMode.HTML)
 
     async def feature(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         user = update.effective_user
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
@@ -299,6 +375,7 @@ class BotHandlers:
         await update.message.reply_text("⭐ Featured enabled.")
 
     async def unfeature(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         user = update.effective_user
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
@@ -311,6 +388,7 @@ class BotHandlers:
         await update.message.reply_text("✅ Featured removed.")
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         user = update.effective_user
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
@@ -322,6 +400,9 @@ class BotHandlers:
             f"Total Courses: {s['total_courses']}",
             f"Paid Courses: {s['total_paid_courses']}",
             f"Total Searches: {s['total_searches']}",
+            f"Total Users: {s['total_users']}",
+            f"24h Active Users: {s['active_24h']}",
+            f"7d Active Users: {s['active_7d']}",
             "",
             "🔥 Top Queries:",
         ]
@@ -338,9 +419,10 @@ class BotHandlers:
         for row in s["top_clicked"]:
             lines.append(f"• {row['title']} — {row['ccount']}")
 
-        await update.message.reply_text("\n".join(lines[:150]), parse_mode=ParseMode.HTML)
+        await update.message.reply_text("\n".join(lines[:180]), parse_mode=ParseMode.HTML)
 
     async def grant(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
         user = update.effective_user
         if not user or not is_admin(user.id):
             await update.message.reply_text("❌ Admin only command.")
@@ -373,6 +455,6 @@ class BotHandlers:
                 )
                 await update.message.reply_text("✅ Access granted and user notified.")
             except Exception as e:
-                await update.message.reply_text(f"Approved but user ko DM nahi gaya: {e}")
+                await update.message.reply_text(f"Approved but DM nahi gaya: {e}")
         else:
             await update.message.reply_text("Approved, but premium link not configured.")

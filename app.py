@@ -75,6 +75,8 @@ def main():
     app.add_handler(CommandHandler("search", h.search_command))
     app.add_handler(CommandHandler("categories", h.categories))
     app.add_handler(CommandHandler("featured", h.featured))
+    app.add_handler(CommandHandler("addcourse", h.addcourse))
+    app.add_handler(CommandHandler("importcsv", h.importcsv))
     app.add_handler(CommandHandler("deletecourse", h.deletecourse))
     app.add_handler(CommandHandler("listcourses", h.listcourses))
     app.add_handler(CommandHandler("feature", h.feature))
@@ -86,7 +88,7 @@ def main():
     app.add_handler(InlineQueryHandler(h.inline_query))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, h.text_search))
 
-    print("Bot v2 is running...")
+    print("Bot v2.1 is running...")
     app.run_polling(drop_pending_updates=True)
 
 

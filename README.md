@@ -1,14 +1,15 @@
-# Code Devil Course Bot v2
+# Code Devil Course Bot v2.1
 
 ## Features
-- Search by command and normal text
+- Direct bot search
+- Text search
+- /search command
 - Thumbnails
-- Paid / free course flow
+- Paid/free course flow
+- CSV import
 - Typo suggestions
 - Inline search
-- Premium channel unlock
-- Analytics
-- CSV import ready
+- Active users analytics
 
 ## Run
 pip install -r requirements.txt

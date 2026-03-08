@@ -83,6 +83,30 @@ class Database:
             );
             """)
 
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                first_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+
+            conn.commit()
+
+    def upsert_user(self, user_id: int, username: str = "", first_name: str = "", last_name: str = ""):
+        with closing(self.get_conn()) as conn:
+            conn.execute("""
+                INSERT INTO users (user_id, username, first_name, last_name, first_seen_at, last_seen_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username=excluded.username,
+                    first_name=excluded.first_name,
+                    last_name=excluded.last_name,
+                    last_seen_at=CURRENT_TIMESTAMP
+            """, (user_id, username, first_name, last_name))
             conn.commit()
 
     def add_course(
@@ -128,36 +152,6 @@ class Database:
 
             conn.commit()
             return course_id
-
-    def update_course_basic(
-        self,
-        course_id: int,
-        title: str,
-        instructor: str,
-        category: str,
-        description: str,
-        thumbnail_url: str,
-        download_url: str,
-        how_to_download_url: str,
-        demo_url: str,
-        contact_url: str,
-        premium_channel_link: str,
-        is_paid: int,
-        price: str,
-    ):
-        with closing(self.get_conn()) as conn:
-            conn.execute("""
-                UPDATE courses
-                SET title=?, instructor=?, category=?, description=?, thumbnail_url=?,
-                    download_url=?, how_to_download_url=?, demo_url=?, contact_url=?,
-                    premium_channel_link=?, is_paid=?, price=?, updated_at=CURRENT_TIMESTAMP
-                WHERE id=?
-            """, (
-                title, instructor, category, description, thumbnail_url,
-                download_url, how_to_download_url, demo_url, contact_url,
-                premium_channel_link, is_paid, price, course_id
-            ))
-            conn.commit()
 
     def delete_course(self, course_id: int):
         with closing(self.get_conn()) as conn:
@@ -250,6 +244,15 @@ class Database:
             total_courses = conn.execute("SELECT COUNT(*) FROM courses").fetchone()[0]
             total_searches = conn.execute("SELECT COUNT(*) FROM search_logs").fetchone()[0]
             total_paid = conn.execute("SELECT COUNT(*) FROM courses WHERE is_paid=1").fetchone()[0]
+            total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            active_24h = conn.execute("""
+                SELECT COUNT(*) FROM users
+                WHERE datetime(last_seen_at) >= datetime('now', '-1 day')
+            """).fetchone()[0]
+            active_7d = conn.execute("""
+                SELECT COUNT(*) FROM users
+                WHERE datetime(last_seen_at) >= datetime('now', '-7 day')
+            """).fetchone()[0]
 
             popular_queries = conn.execute("""
                 SELECT query, COUNT(*) as c
@@ -281,6 +284,9 @@ class Database:
                 "total_courses": total_courses,
                 "total_searches": total_searches,
                 "total_paid_courses": total_paid,
+                "total_users": total_users,
+                "active_24h": active_24h,
+                "active_7d": active_7d,
                 "popular_queries": [dict(r) for r in popular_queries],
                 "zero_results": [dict(r) for r in zero_results],
                 "top_clicked": [dict(r) for r in top_clicked],
@@ -310,8 +316,8 @@ class Database:
                 course.get("description", "") or "",
             ] + keyword_map.get(course["id"], [])
 
-            score = 0.0
             haystack = " | ".join(searchable_parts).lower()
+            score = 0.0
 
             if q in haystack:
                 score += 120
