@@ -157,82 +157,126 @@ class BotHandlers:
         if len(text) < 2:
             return
         await self.run_search(update, context, text)
+        
+#button handler
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
+
         query = update.callback_query
         await query.answer()
+
         data = query.data or ""
         user = update.effective_user
 
-        if data.startswith("course::"):
-            course_id = int(data.split("::", 1)[1])
-            course = self.db.get_course(course_id)
-            if not course:
-                await query.edit_message_text("Course not found.")
+        try:
+            if data.startswith("course::"):
+                course_id = int(data.split("::", 1)[1])
+                course = self.db.get_course(course_id)
+
+                if not course:
+                    await query.message.reply_text("❌ Course not found in database.")
+                    return
+
+                self.db.log_click(
+                    user.id if user else None,
+                    user.username if user else "",
+                    course_id,
+                    "open_course",
+                )
+
+                caption = format_course_caption(course)
+
+                # Thumbnail ho to photo bhejo
+                if course.get("thumbnail_url"):
+                    try:
+                        await query.message.reply_photo(
+                            photo=course["thumbnail_url"],
+                            caption=caption,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=course_keyboard(course),
+                        )
+                    except Exception:
+                        # Agar thumbnail invalid ho to text fallback
+                        await query.message.reply_text(
+                            caption,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=course_keyboard(course),
+                        )
+                else:
+                    # Blank thumbnail ho to normal text message bhejo
+                    await query.message.reply_text(
+                        caption,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=course_keyboard(course),
+                    )
                 return
 
-            self.db.log_click(user.id if user else None, user.username if user else "", course_id, "open_course")
+            if data.startswith("cat::"):
+                category = data.split("::", 1)[1]
+                results = self.db.search_courses(category, limit=20)
 
-            caption = format_course_caption(course)
-            if course.get("thumbnail_url"):
-                await query.message.reply_photo(
-                    photo=course["thumbnail_url"],
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=course_keyboard(course),
-                )
-            else:
+                if not results:
+                    await query.message.reply_text("❌ Is category me koi course nahi mila.")
+                    return
+
                 await query.edit_message_text(
-                    caption,
+                    f"🗂 <b>{category}</b> category ke courses:",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=course_keyboard(course),
+                    reply_markup=search_results_keyboard(results),
                 )
-            return
-
-        if data.startswith("cat::"):
-            category = data.split("::", 1)[1]
-            results = self.db.search_courses(category, limit=20)
-            await query.edit_message_text(
-                f"🗂 <b>{category}</b> category ke courses:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=search_results_keyboard(results),
-            )
-            return
-
-        if data.startswith("suggest::"):
-            keyword = data.split("::", 1)[1]
-            results = self.db.search_courses(keyword, limit=10)
-            await query.edit_message_text(
-                f"🔎 Suggested results for <b>{keyword}</b>:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=search_results_keyboard(results),
-            )
-            return
-
-        if data.startswith("premium::"):
-            course_id = int(data.split("::", 1)[1])
-            course = self.db.get_course(course_id)
-            if not course:
-                await query.edit_message_text("Course not found.")
                 return
 
-            link = course.get("premium_channel_link") or PREMIUM_CHANNEL_LINK or "Not configured"
-            await query.message.reply_text(
-                f"🔓 Premium access manual approval based hai.\n\n"
-                f"Course: {course['title']}\n"
-                f"Purchase ke baad admin se contact karo.\n"
-                f"Approved hone ke baad premium link diya jayega:\n{link}"
-            )
-            return
+            if data.startswith("suggest::"):
+                keyword = data.split("::", 1)[1]
+                results = self.db.search_courses(keyword, limit=10)
 
-        if data == "featured::all":
-            results = self.db.get_featured_courses(limit=20)
-            await query.edit_message_text(
-                "⭐ <b>Featured Courses</b>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=search_results_keyboard(results),
-            )
+                if not results:
+                    await query.message.reply_text("❌ Suggested keyword se bhi course nahi mila.")
+                    return
+
+                await query.edit_message_text(
+                    f"🔎 Suggested results for <b>{keyword}</b>:",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=search_results_keyboard(results),
+                )
+                return
+
+            if data.startswith("premium::"):
+                course_id = int(data.split("::", 1)[1])
+                course = self.db.get_course(course_id)
+
+                if not course:
+                    await query.message.reply_text("❌ Course not found.")
+                    return
+
+                link = course.get("premium_channel_link") or PREMIUM_CHANNEL_LINK or "Not configured"
+
+                await query.message.reply_text(
+                    f"🔓 Premium access manual approval based hai.\n\n"
+                    f"Course: {course['title']}\n"
+                    f"Purchase ke baad admin se contact karo.\n"
+                    f"Approved hone ke baad premium link diya jayega:\n{link}"
+                )
+                return
+
+            if data == "featured::all":
+                results = self.db.get_featured_courses(limit=20)
+
+                if not results:
+                    await query.message.reply_text("❌ No featured courses found.")
+                    return
+
+                await query.edit_message_text(
+                    "⭐ <b>Featured Courses</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=search_results_keyboard(results),
+                )
+                return
+
+        except Exception as e:
+            print("BUTTON_HANDLER_ERROR:", e)
+            await query.message.reply_text(f"❌ Button error: {e}")
 
     async def inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
