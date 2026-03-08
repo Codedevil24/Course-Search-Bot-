@@ -3,7 +3,12 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from db import Database
-from keyboards import course_keyboard, categories_keyboard, search_results_keyboard, suggestions_keyboard
+from keyboards import (
+    course_keyboard,
+    categories_keyboard,
+    search_results_keyboard,
+    suggestions_keyboard,
+)
 from services import SearchService
 from utils import is_admin, format_course_caption
 from config import PREMIUM_CHANNEL_LINK
@@ -134,7 +139,7 @@ class BotHandlers:
 
     async def send_course_card(self, update: Update, course: dict):
         caption = format_course_caption(course)
-        thumbnail = course.get("thumbnail_url")
+        thumbnail = course.get("thumbnail")
 
         if thumbnail:
             try:
@@ -169,6 +174,7 @@ class BotHandlers:
         self.track_user(update)
         query = update.callback_query
         await query.answer()
+
         data = query.data or ""
         user = update.effective_user
 
@@ -189,7 +195,7 @@ class BotHandlers:
                 )
 
                 caption = format_course_caption(course)
-                thumbnail = course.get("thumbnail_url")
+                thumbnail = course.get("thumbnail")
 
                 if thumbnail:
                     try:
@@ -300,6 +306,7 @@ class BotHandlers:
                 f"👨‍🏫 {course.get('instructor') or 'Unknown'}\n"
                 f"🗂 {course.get('category') or 'General'}"
             )
+
             inline_results.append(
                 InlineQueryResultArticle(
                     id=str(course["id"]),
@@ -348,14 +355,14 @@ class BotHandlers:
             instructor=fields.get("instructor"),
             category=fields.get("category"),
             description=fields.get("description"),
-            thumbnail_url=fields.get("thumbnail", ""),
+            thumbnail=fields.get("thumbnail", ""),
             download_url=fields.get("download", ""),
             how_to_download_url=fields.get("howtodownload", ""),
             demo_url=fields.get("demo", ""),
             contact_url=fields.get("contact", ""),
             premium_channel_link=fields.get("premiumlink", ""),
-            is_featured=int(fields.get("featured", "0")),
-            is_paid=int(fields.get("paid", "0")),
+            is_featured=int(fields.get("featured", "0")) == 1,
+            is_paid=int(fields.get("paid", "0")) == 1,
             price=fields.get("price", ""),
             keywords=keywords,
         )
@@ -478,7 +485,7 @@ class BotHandlers:
             await update.message.reply_text("Usage: /feature 2")
             return
 
-        self.db.set_featured(int(text), 1)
+        self.db.set_featured(int(text), True)
         await update.message.reply_text("⭐ Featured enabled.")
 
     async def unfeature(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -493,7 +500,7 @@ class BotHandlers:
             await update.message.reply_text("Usage: /unfeature 2")
             return
 
-        self.db.set_featured(int(text), 0)
+        self.db.set_featured(int(text), False)
         await update.message.reply_text("✅ Featured removed.")
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

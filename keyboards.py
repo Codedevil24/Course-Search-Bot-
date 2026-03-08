@@ -15,13 +15,21 @@ def course_keyboard(course: dict) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton("💬 Chat to Buy", url=contact_url)])
 
         if course.get("premium_channel_link"):
-            rows.append([InlineKeyboardButton("🔓 Premium Access Info", callback_data=f"premium::{course['id']}")])
+            rows.append([
+                InlineKeyboardButton(
+                    "🔓 Premium Access Info",
+                    callback_data=f"premium::{course['id']}"
+                )
+            ])
     else:
         if course.get("download_url"):
             rows.append([InlineKeyboardButton("📥 Download Course", url=course["download_url"])])
 
         if course.get("how_to_download_url"):
             rows.append([InlineKeyboardButton("📺 How to Download", url=course["how_to_download_url"])])
+
+        if course.get("demo_url"):
+            rows.append([InlineKeyboardButton("🎬 Demo", url=course["demo_url"])])
 
     rows.append([InlineKeyboardButton("📢 Join Our Main Channel", url=MAIN_CHANNEL_URL)])
     rows.append([InlineKeyboardButton("📂 Join PlayLists", url=PLAYLISTS_URL)])

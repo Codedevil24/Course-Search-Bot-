@@ -1,6 +1,7 @@
-# Code Devil Course Bot v2.2
+# Code Devil Course Bot v2.3
 
 ## Features
+- Supabase/Postgres database
 - Direct bot search
 - /search command
 - Normal text search
@@ -15,7 +16,11 @@
 - Active users analytics
 - Render web service compatible
 
-## Run
+## Install
 pip install -r requirements.txt
-Create .env
+
+## Setup
+1. Copy .env.example to .env
+2. Fill BOT_TOKEN, ADMIN_IDS, SUPABASE_DB_URL
+3. Run:
 python app.py

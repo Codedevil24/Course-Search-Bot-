@@ -16,7 +16,7 @@ def format_course_caption(course: dict) -> str:
     category = course.get("category") or "General"
     description = course.get("description") or "No description available."
     is_paid = bool(course.get("is_paid"))
-    price = course.get("price") or "Not set"
+    price = course.get("price") or ""
 
     lines = [
         f"📚 <b>{title}</b>",
@@ -27,7 +27,7 @@ def format_course_caption(course: dict) -> str:
     ]
 
     if is_paid:
-        lines.append(f"💰 <b>Price:</b> {price}")
+        lines.append(f"💰 <b>Price:</b> {price or 'Contact Admin'}")
         lines.append("🔒 <b>Type:</b> Paid Course")
     else:
         lines.append("🆓 <b>Type:</b> Free Course")

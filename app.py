@@ -1,4 +1,3 @@
-import os
 import threading
 import logging
 from flask import Flask
@@ -12,7 +11,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import BOT_TOKEN, DB_PATH, PORT
+from config import BOT_TOKEN, PORT
 from db import Database
 from handlers import BotHandlers
 
@@ -23,16 +22,19 @@ logging.basicConfig(
 
 web_app = Flask(__name__)
 
+
 @web_app.route("/")
 def home():
     return "Bot is running!"
+
 
 def run_web():
     web_app.run(host="0.0.0.0", port=PORT)
 
 
 def seed_data(db: Database):
-    if db.list_courses(limit=1):
+    existing = db.list_courses(limit=1)
+    if existing:
         return
 
     db.add_course(
@@ -40,14 +42,14 @@ def seed_data(db: Database):
         instructor="Codebasics",
         category="AI / Deep Learning",
         description="Deep learning course from beginner to advanced.",
-        thumbnail_url="https://dummyimage.com/600x400/000/fff&text=Deep+Learning",
+        thumbnail="https://dummyimage.com/600x400/000/fff&text=Deep+Learning",
         download_url="https://gplinks.co/Codebasics_deeplearning",
         how_to_download_url="https://youtu.be/_p_SeBnl-xE?si=cgjhCJVNP6O-luir",
         demo_url="",
-        contact_url="https://t.me/YourUsername",
+        contact_url="https://t.me/Code_Devil",
         premium_channel_link="",
-        is_featured=1,
-        is_paid=0,
+        is_featured=True,
+        is_paid=False,
         price="",
         keywords=["deep learning", "codebasics dl", "codebasics deep learning"],
     )
@@ -57,14 +59,14 @@ def seed_data(db: Database):
         instructor="Code Devil",
         category="Web Development",
         description="Premium full stack course with project support.",
-        thumbnail_url="https://dummyimage.com/600x400/111/fff&text=Premium+Full+Stack",
+        thumbnail="https://dummyimage.com/600x400/111/fff&text=Premium+Full+Stack",
         download_url="",
         how_to_download_url="",
         demo_url="https://t.me/Code_Devil",
-        contact_url="https://t.me/YourUsername",
+        contact_url="https://t.me/Code_Devil",
         premium_channel_link="https://t.me/+your_private_invite",
-        is_featured=1,
-        is_paid=1,
+        is_featured=True,
+        is_paid=True,
         price="₹999",
         keywords=["code devil premium", "premium full stack", "codedevil course"],
     )
@@ -74,7 +76,7 @@ def main():
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN missing in .env")
 
-    db = Database(DB_PATH)
+    db = Database()
     db.init_db()
     seed_data(db)
 
@@ -101,7 +103,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, h.save_thumbnail))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, h.text_search))
 
-    print("Bot v2.2 is running...")
+    print("Bot v2.3 is running...")
     app.run_polling(drop_pending_updates=True)
 
 
