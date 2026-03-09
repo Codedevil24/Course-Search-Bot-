@@ -1,5 +1,12 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from config import MAIN_CHANNEL_URL, PLAYLISTS_URL, SUPPORT_CONTACT_URL
+
+from config import (
+    MAIN_CHANNEL_URL,
+    PLAYLISTS_URL,
+    SUPPORT_CONTACT_URL,
+    WHATSAPP_CHANNEL_URL,
+)
+from utils import build_force_sub_keyboard, build_home_keyboard
 
 
 def course_keyboard(course: dict) -> InlineKeyboardMarkup:
@@ -19,7 +26,7 @@ def course_keyboard(course: dict) -> InlineKeyboardMarkup:
             rows.append([
                 InlineKeyboardButton(
                     "🔓 Premium Access Info",
-                    callback_data=f"premium::{course['id']}"
+                    callback_data=f"premium::{course['id']}",
                 )
             ])
 
@@ -68,3 +75,11 @@ def search_results_keyboard(results: list[dict]) -> InlineKeyboardMarkup:
 def suggestions_keyboard(suggestions: list[str]) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(s, callback_data=f"suggest::{s}")] for s in suggestions[:10]]
     return InlineKeyboardMarkup(rows)
+
+
+def locked_access_keyboard() -> InlineKeyboardMarkup:
+    return build_force_sub_keyboard()
+
+
+def home_keyboard() -> InlineKeyboardMarkup:
+    return build_home_keyboard()

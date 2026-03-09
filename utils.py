@@ -3,7 +3,15 @@ from __future__ import annotations
 from difflib import get_close_matches
 import html
 
-from config import ADMIN_IDS
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from config import (
+    ADMIN_IDS,
+    BOT_NAME,
+    FORCE_SUB_CHANNELS,
+    FORCE_SUB_CHANNEL_URLS,
+    WHATSAPP_CHANNEL_URL,
+)
 
 
 def is_admin(user_id: int) -> bool:
@@ -19,6 +27,88 @@ def suggest_keyword(query: str, all_keywords: list[str]) -> list[str]:
 
 def escape_html(text: str | None) -> str:
     return html.escape(text or "")
+
+
+async def is_user_joined_required_channels(bot, user_id: int) -> bool:
+    if not FORCE_SUB_CHANNELS:
+        return True
+
+    for channel in FORCE_SUB_CHANNELS:
+        try:
+            member = await bot.get_chat_member(channel, user_id)
+            status = getattr(member, "status", "")
+            if status in ("left", "kicked"):
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def build_force_sub_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+
+    for idx, url in enumerate(FORCE_SUB_CHANNEL_URLS[:5], start=1):
+        rows.append([InlineKeyboardButton(f"📢 Join Channel {idx}", url=url)])
+
+    if WHATSAPP_CHANNEL_URL:
+        rows.append([InlineKeyboardButton("💬 Join WhatsApp Channel", url=WHATSAPP_CHANNEL_URL)])
+
+    rows.append([InlineKeyboardButton("✅ I Joined", callback_data="joincheck::verify")])
+    rows.append([InlineKeyboardButton("🔄 Check Again", callback_data="joincheck::verify")])
+
+    return InlineKeyboardMarkup(rows)
+
+
+def build_home_keyboard() -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton("📚 Categories", callback_data="home::categories")],
+        [InlineKeyboardButton("⭐ Featured Courses", callback_data="featured::all")],
+        [InlineKeyboardButton("ℹ️ Help", callback_data="home::help")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def get_locked_welcome_text(user_first_name: str = "") -> str:
+    user_line = f"👋 Hello <b>{escape_html(user_first_name)}</b>\n\n" if user_first_name else ""
+
+    return (
+        f"{user_line}"
+        f"🚀 <b>Welcome to {escape_html(BOT_NAME)}</b>\n\n"
+        "Yahaan aap premium aur free courses search kar sakte ho.\n"
+        "Lekin bot use karne se pehle required Telegram channels join karna zaroori hai.\n\n"
+        "🔐 <b>Access Locked</b>\n"
+        "Pehle niche diye gaye channels join karo.\n"
+        "Uske baad <b>✅ I Joined</b> button dabao.\n\n"
+        "Join hone ke baad hi aap:\n"
+        "• Course search kar paoge\n"
+        "• Categories dekh paoge\n"
+        "• Featured courses open kar paoge\n"
+        "• Download buttons access kar paoge"
+    )
+
+
+def get_unlocked_welcome_text(user_first_name: str = "") -> str:
+    user_line = f"👋 Hello <b>{escape_html(user_first_name)}</b>\n\n" if user_first_name else ""
+
+    return (
+        f"{user_line}"
+        f"🎉 <b>Welcome to {escape_html(BOT_NAME)}</b>\n\n"
+        "✅ Access unlocked successfully.\n\n"
+        "Ab aap bot use kar sakte ho.\n\n"
+        "Search karne ke examples:\n"
+        "• /search python\n"
+        "• /search flutter\n"
+        "• harkirat\n"
+        "• dsa\n\n"
+        "Ya direct course ka naam type karo."
+    )
+
+
+def get_locked_reply_text() -> str:
+    return (
+        "🔒 Bot use karne ke liye pehle required Telegram channels join karo.\n\n"
+        "Join karne ke baad <b>✅ I Joined</b> button dabao."
+    )
 
 
 def format_course_caption(course: dict) -> str:

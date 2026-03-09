@@ -8,9 +8,18 @@ from keyboards import (
     categories_keyboard,
     search_results_keyboard,
     suggestions_keyboard,
+    locked_access_keyboard,
+    home_keyboard,
 )
 from services import SearchService
-from utils import is_admin, format_course_caption
+from utils import (
+    is_admin,
+    format_course_caption,
+    is_user_joined_required_channels,
+    get_locked_welcome_text,
+    get_unlocked_welcome_text,
+    get_locked_reply_text,
+)
 from config import PREMIUM_CHANNEL_LINK
 from csv_importer import import_courses_from_csv
 
@@ -30,36 +39,72 @@ class BotHandlers:
                 last_name=user.last_name or "",
             )
 
-    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self.track_user(update)
+    async def ensure_access(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        user = update.effective_user
+        if not user:
+            return False
+
+        joined = await is_user_joined_required_channels(context.bot, user.id)
+        if joined:
+            return True
+
+        text = get_locked_reply_text()
+
+        if update.message:
+            await update.message.reply_text(
+                text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=locked_access_keyboard(),
+            )
+            return False
+
+        if update.callback_query and update.callback_query.message:
+            await update.callback_query.message.reply_text(
+                text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=locked_access_keyboard(),
+            )
+            return False
+
+        return False
+
+    async def send_start_ui(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        first_name = user.first_name if user else ""
+        joined = False
+
+        if user:
+            joined = await is_user_joined_required_channels(context.bot, user.id)
 
         if not update.message:
             return
 
-        text = (
-            "🚀 <b>Welcome to Code Devil Premium Course Bot</b>\n\n"
-            "Yahan aap direct course search kar sakte ho.\n\n"
-            "Examples:\n"
-            "• /search python\n"
-            "• /search flutter\n"
-            "• krish naik\n"
-            "• dsa\n\n"
-            "Commands:\n"
-            "/categories\n"
-            "/featured\n"
-            "/help"
-        )
+        if joined:
+            await update.message.reply_text(
+                get_unlocked_welcome_text(first_name),
+                parse_mode=ParseMode.HTML,
+                reply_markup=home_keyboard(),
+            )
+        else:
+            await update.message.reply_text(
+                get_locked_welcome_text(first_name),
+                parse_mode=ParseMode.HTML,
+                reply_markup=locked_access_keyboard(),
+            )
 
-        await update.message.reply_text(
-            text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=categories_keyboard(self.db.get_categories())
-        )
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        if not update.message:
+            return
+        await self.send_start_ui(update, context)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
 
         if not update.message:
+            return
+
+        if not await self.ensure_access(update, context):
             return
 
         text = (
@@ -69,6 +114,11 @@ class BotHandlers:
             "• /categories\n"
             "• /featured\n"
             "• normal text search bhi kaam karega\n\n"
+            "Examples:\n"
+            "• /search python\n"
+            "• /search dsa\n"
+            "• harkirat\n"
+            "• web dev\n\n"
             "Admin:\n"
             "• /addcourse\n"
             "• /deletecourse\n"
@@ -80,12 +130,19 @@ class BotHandlers:
             "• /importcsv\n"
             "• reply me photo bhejo to thumbnail save ho jayega"
         )
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=home_keyboard(),
+        )
 
     async def featured(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
 
         if not update.message:
+            return
+
+        if not await self.ensure_access(update, context):
             return
 
         results = self.db.get_featured_courses()
@@ -105,6 +162,9 @@ class BotHandlers:
         if not update.message:
             return
 
+        if not await self.ensure_access(update, context):
+            return
+
         cats = self.db.get_categories()
         await update.message.reply_text(
             "📚 <b>Categories</b>",
@@ -116,6 +176,9 @@ class BotHandlers:
         self.track_user(update)
 
         if not update.message:
+            return
+
+        if not await self.ensure_access(update, context):
             return
 
         query = " ".join(context.args).strip()
@@ -193,6 +256,9 @@ class BotHandlers:
         if not update.message or not update.message.text:
             return
 
+        if not await self.ensure_access(update, context):
+            return
+
         text = update.message.text.strip()
         if text.startswith("/"):
             return
@@ -214,7 +280,77 @@ class BotHandlers:
         user = update.effective_user
 
         try:
+            if data == "joincheck::verify":
+                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
+
+                if joined:
+                    await query.edit_message_text(
+                        get_unlocked_welcome_text(user.first_name if user else ""),
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=home_keyboard(),
+                    )
+                else:
+                    await query.message.reply_text(
+                        "❌ Abhi bhi required Telegram channels joined nahi mile.\n\n"
+                        "Pehle sab required channels join karo, phir dobara check karo.",
+                        reply_markup=locked_access_keyboard(),
+                    )
+                return
+
+            if data == "home::categories":
+                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
+                if not joined:
+                    await query.message.reply_text(
+                        get_locked_reply_text(),
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=locked_access_keyboard(),
+                    )
+                    return
+
+                cats = self.db.get_categories()
+                await query.edit_message_text(
+                    "📚 <b>Categories</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=categories_keyboard(cats),
+                )
+                return
+
+            if data == "home::help":
+                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
+                if not joined:
+                    await query.message.reply_text(
+                        get_locked_reply_text(),
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=locked_access_keyboard(),
+                    )
+                    return
+
+                await query.edit_message_text(
+                    "📖 <b>Help</b>\n\n"
+                    "• /search &lt;keyword&gt;\n"
+                    "• /categories\n"
+                    "• /featured\n"
+                    "• normal text search bhi kaam karega\n\n"
+                    "Example:\n"
+                    "• python\n"
+                    "• flutter\n"
+                    "• dsa\n"
+                    "• harkirat",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=home_keyboard(),
+                )
+                return
+
             if data.startswith("course::"):
+                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
+                if not joined:
+                    await query.message.reply_text(
+                        get_locked_reply_text(),
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=locked_access_keyboard(),
+                    )
+                    return
+
                 course_id = int(data.split("::", 1)[1])
                 course = self.db.get_course(course_id)
 
@@ -255,8 +391,17 @@ class BotHandlers:
                 return
 
             if data.startswith("cat::"):
+                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
+                if not joined:
+                    await query.message.reply_text(
+                        get_locked_reply_text(),
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=locked_access_keyboard(),
+                    )
+                    return
+
                 category = data.split("::", 1)[1]
-                results = self.db.search_courses(category, limit=20)
+                results = self.db.search_courses_by_category(category, limit=20)
 
                 if not results:
                     await query.message.reply_text("❌ Is category me koi course nahi mila.")
@@ -270,6 +415,15 @@ class BotHandlers:
                 return
 
             if data.startswith("suggest::"):
+                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
+                if not joined:
+                    await query.message.reply_text(
+                        get_locked_reply_text(),
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=locked_access_keyboard(),
+                    )
+                    return
+
                 keyword = data.split("::", 1)[1]
                 results = self.db.search_courses(keyword, limit=10)
 
@@ -285,6 +439,15 @@ class BotHandlers:
                 return
 
             if data.startswith("premium::"):
+                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
+                if not joined:
+                    await query.message.reply_text(
+                        get_locked_reply_text(),
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=locked_access_keyboard(),
+                    )
+                    return
+
                 course_id = int(data.split("::", 1)[1])
                 course = self.db.get_course(course_id)
                 if not course:
@@ -301,6 +464,15 @@ class BotHandlers:
                 return
 
             if data == "featured::all":
+                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
+                if not joined:
+                    await query.message.reply_text(
+                        get_locked_reply_text(),
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=locked_access_keyboard(),
+                    )
+                    return
+
                 results = self.db.get_featured_courses(limit=20)
                 if not results:
                     await query.message.reply_text("❌ No featured courses found.")
@@ -328,6 +500,16 @@ class BotHandlers:
             )
 
         if not update.inline_query:
+            return
+
+        joined = await is_user_joined_required_channels(context.bot, user.id) if user else False
+        if not joined:
+            await update.inline_query.answer(
+                [],
+                cache_time=1,
+                switch_pm_text="Join required channels first",
+                switch_pm_parameter="start",
+            )
             return
 
         query = update.inline_query.query.strip()
@@ -509,10 +691,7 @@ class BotHandlers:
             return
 
         course_id = int(text)
-
-        # Soft delete use karna ho to niche wali line use karo:
         self.db.soft_delete_course(course_id)
-
         await update.message.reply_text("🗑 Deleted.")
 
     async def listcourses(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -286,6 +286,24 @@ class Database:
                 """)
                 return [r["category"] for r in cur.fetchall()]
 
+
+    def search_courses_by_category(self, category: str, limit: int = 20) -> list[dict[str, Any]]:
+        c = (category or "").strip()
+        if not c:
+            return []
+
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                SELECT *
+                FROM courses
+                WHERE is_active = TRUE
+                  AND LOWER(COALESCE(category, '')) = LOWER(%s)
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT %s
+                """, (c, limit))
+                return [dict(r) for r in cur.fetchall()]
+
     def get_all_keywords(self) -> list[str]:
         with self.get_conn() as conn:
             with conn.cursor() as cur:

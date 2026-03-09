@@ -54,6 +54,8 @@ async def _run_bot():
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN missing in .env")
 
+    logger.info("Initializing bot application...")
+
     db = Database()
     db.init_db()
     seed_data(db)
