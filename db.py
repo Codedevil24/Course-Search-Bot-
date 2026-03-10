@@ -636,16 +636,21 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute(
                     f'''
-                    SELECT c.*
-                    FROM courses c
-                    LEFT JOIN keywords k ON k.course_id = c.id
-                    WHERE c.is_active = TRUE
-                      AND ({where_sql})
-                    GROUP BY c.id
-                    ORDER BY ({score_sql}) DESC, c.updated_at DESC, c.created_at DESC
+                    SELECT ranked.*
+                    FROM (
+                        SELECT
+                            c.*,
+                            MAX({score_sql}) AS search_rank
+                        FROM courses c
+                        LEFT JOIN keywords k ON k.course_id = c.id
+                        WHERE c.is_active = TRUE
+                          AND ({where_sql})
+                        GROUP BY c.id
+                    ) AS ranked
+                    ORDER BY ranked.search_rank DESC, ranked.updated_at DESC, ranked.created_at DESC
                     LIMIT %s OFFSET %s
                     ''',
-                    where_params + score_params + [limit, offset],
+                    score_params + where_params + [limit, offset],
                 )
                 return [dict(r) for r in cur.fetchall()]
 
@@ -667,6 +672,45 @@ class Database:
                     where_params,
                 )
                 return cur.fetchone()['c']
+
+    def search_courses_fallback(self, query: str, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+        q = normalize_text(query)
+        if not q:
+            return []
+        limit = limit or PAGE_SIZE
+        tokens = tokenize_query(q)
+        like_clauses = [f'%{q}%']
+        like_clauses.extend(f'%{token}%' for token in tokens if token != q)
+
+        where_parts: list[str] = []
+        params: list[Any] = []
+        for like_q in like_clauses:
+            where_parts.extend([
+                "LOWER(COALESCE(c.title, '')) LIKE %s",
+                "LOWER(COALESCE(c.instructor, '')) LIKE %s",
+                "LOWER(COALESCE(c.category, '')) LIKE %s",
+                "LOWER(COALESCE(c.description, '')) LIKE %s",
+                "LOWER(COALESCE(k.keyword, '')) LIKE %s",
+            ])
+            params.extend([like_q, like_q, like_q, like_q, like_q])
+
+        where_sql = ' OR '.join(f'({part})' for part in where_parts)
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f'''
+                    SELECT c.*
+                    FROM courses c
+                    LEFT JOIN keywords k ON k.course_id = c.id
+                    WHERE c.is_active = TRUE
+                      AND ({where_sql})
+                    GROUP BY c.id
+                    ORDER BY c.updated_at DESC, c.created_at DESC
+                    LIMIT %s OFFSET %s
+                    ''',
+                    params + [limit, offset],
+                )
+                return [dict(r) for r in cur.fetchall()]
 
 
 db = Database()

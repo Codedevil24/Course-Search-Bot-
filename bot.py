@@ -16,6 +16,10 @@ _bot_thread = None
 _bot_started = False
 
 
+async def _on_error(update: object, context):
+    logger.exception('Unhandled telegram update error: %s', getattr(context, 'error', None))
+
+
 def seed_data(db: Database):
     existing = db.list_courses(limit=1)
     if existing:
@@ -49,6 +53,7 @@ async def _run_bot():
     h = BotHandlers(db)
 
     application = Application.builder().token(BOT_TOKEN).build()
+    application.add_error_handler(_on_error)
     application.add_handler(CommandHandler('start', h.start))
     application.add_handler(CommandHandler('help', h.help_command))
     application.add_handler(CommandHandler('search', h.search_command))

@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from telegram import InputTextMessageContent, InlineQueryResultArticle, Update
+from telegram.error import BadRequest
 from telegram.constants import ChatType, ParseMode
 from telegram.ext import ContextTypes
 
@@ -44,10 +45,16 @@ class BotHandlers:
         message = update.message
         if not message:
             return
-        if self._is_group_chat(update):
-            kwargs.setdefault('reply_to_message_id', message.message_id)
-            kwargs.setdefault('allow_sending_without_reply', True)
-        await message.reply_text(text, **kwargs)
+        try:
+            if self._is_group_chat(update):
+                kwargs.setdefault('reply_to_message_id', message.message_id)
+                kwargs.setdefault('allow_sending_without_reply', True)
+            await message.reply_text(text, **kwargs)
+        except BadRequest:
+            kwargs.pop('reply_to_message_id', None)
+            kwargs.pop('allow_sending_without_reply', None)
+            await message.reply_text(text, **kwargs)
+
 
     async def ensure_access(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         user = update.effective_user
@@ -156,24 +163,36 @@ class BotHandlers:
 
     async def run_search(self, update: Update, query: str, page: int = 0):
         offset = page * PAGE_SIZE
-        result = self.search_service.search_with_suggestions(query, limit=PAGE_SIZE, offset=offset)
-        results = result['results']
-        suggestions = result['suggestions']
-        total = result['total']
-
-        user = update.effective_user
-        self.db.log_search(user_id=user.id if user else None, username=user.username if user and user.username else '', query=query, matched_count=total)
-
         message = update.message
         if not message:
             return
 
+        try:
+            result = self.search_service.search_with_suggestions(query, limit=PAGE_SIZE, offset=offset)
+            results = result['results']
+            suggestions = result['suggestions']
+            total = result['total']
+        except Exception:
+            logger.exception('Search pipeline failed for query=%s', query)
+            await self._reply_user_scoped(update, '❌ Search me temporary problem aa gayi. Thodi der baad phir try karo.')
+            return
+
+        user = update.effective_user
+        try:
+            self.db.log_search(user_id=user.id if user else None, username=user.username if user and user.username else '', query=query, matched_count=total)
+        except Exception:
+            logger.exception('Failed to log search for query=%s', query)
+
         if results:
             if total == 1 and page == 0:
-                self.db.log_click(user.id if user else None, user.username if user and user.username else '', results[0]['id'], 'open_course')
+                try:
+                    self.db.log_click(user.id if user else None, user.username if user and user.username else '', results[0]['id'], 'open_course')
+                except Exception:
+                    logger.exception('Failed to log click for course_id=%s', results[0].get('id'))
                 await self.send_course_card(message.reply_text, message.reply_photo, results[0])
                 return
-            await message.reply_text(
+            await self._reply_user_scoped(
+                update,
                 f'🔎 <b>{escape_html(query)}</b> ke liye {total} matching courses mile.',
                 parse_mode=ParseMode.HTML,
                 reply_markup=search_results_keyboard(results, 'search', query, page, total),
@@ -181,13 +200,15 @@ class BotHandlers:
             return
 
         if suggestions:
-            await message.reply_text(
+            await self._reply_user_scoped(
+                update,
                 '❌ Exact result nahi mila.\n\nShayad aap yeh dhundh rahe the:',
                 reply_markup=suggestions_keyboard(suggestions),
             )
             return
 
-        await message.reply_text('❌ Koi course nahi mila.')
+        await self._reply_user_scoped(update, '❌ Koi course nahi mila.')
+
 
     async def send_course_card(self, reply_text_fn, reply_photo_fn, course: dict):
         caption = format_course_caption(course)
