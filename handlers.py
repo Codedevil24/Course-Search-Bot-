@@ -4,10 +4,10 @@ import logging
 from pathlib import Path
 
 from telegram import InputTextMessageContent, InlineQueryResultArticle, Update
-from telegram.constants import ParseMode
+from telegram.constants import ChatType, ParseMode
 from telegram.ext import ContextTypes
 
-from config import PAGE_SIZE, PREMIUM_CHANNEL_LINK
+from config import PAGE_SIZE, PREMIUM_CHANNEL_LINK, ADMIN_IDS
 from csv_importer import import_courses_from_csv
 from db import Database
 from keyboards import categories_keyboard, course_keyboard, home_keyboard, locked_access_keyboard, search_results_keyboard, suggestions_keyboard
@@ -36,6 +36,19 @@ class BotHandlers:
         if user:
             self.db.upsert_user(user_id=user.id, username=user.username or '', first_name=user.first_name or '', last_name=user.last_name or '')
 
+    def _is_group_chat(self, update: Update) -> bool:
+        chat = update.effective_chat
+        return bool(chat and chat.type in (ChatType.GROUP, ChatType.SUPERGROUP))
+
+    async def _reply_user_scoped(self, update: Update, text: str, **kwargs):
+        message = update.message
+        if not message:
+            return
+        if self._is_group_chat(update):
+            kwargs.setdefault('reply_to_message_id', message.message_id)
+            kwargs.setdefault('allow_sending_without_reply', True)
+        await message.reply_text(text, **kwargs)
+
     async def ensure_access(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         user = update.effective_user
         if not user:
@@ -46,7 +59,7 @@ class BotHandlers:
 
         text = get_locked_reply_text()
         if update.message:
-            await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=locked_access_keyboard())
+            await self._reply_user_scoped(update, text, parse_mode=ParseMode.HTML, reply_markup=locked_access_keyboard())
         elif update.callback_query and update.callback_query.message:
             await update.callback_query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=locked_access_keyboard())
         return False
@@ -58,9 +71,43 @@ class BotHandlers:
         if not update.message:
             return
         if joined:
-            await update.message.reply_text(get_unlocked_welcome_text(first_name), parse_mode=ParseMode.HTML, reply_markup=home_keyboard())
+            await self._reply_user_scoped(update, get_unlocked_welcome_text(first_name), parse_mode=ParseMode.HTML, reply_markup=home_keyboard())
         else:
-            await update.message.reply_text(get_locked_welcome_text(first_name), parse_mode=ParseMode.HTML, reply_markup=locked_access_keyboard())
+            await self._reply_user_scoped(update, get_locked_welcome_text(first_name), parse_mode=ParseMode.HTML, reply_markup=locked_access_keyboard())
+
+    def _help_text(self, admin: bool) -> str:
+        text = (
+            '📖 <b>Help</b>\n\n'
+            'User Commands:\n'
+            '• /start\n'
+            '• /help\n'
+            '• /search &lt;keyword&gt;\n'
+            '• /categories\n'
+            '• /featured\n'
+            '• normal text search bhi kaam karega\n\n'
+            'Examples:\n'
+            '• /search python\n'
+            '• harkirat\n'
+            '• dsa'
+        )
+        if admin:
+            text += (
+                '\n\n🛠 <b>Admin Only Commands</b>\n'
+                '• /addcourse\n'
+                '• /updatecourse\n'
+                '• /deletecourse 12\n'
+                '• /restorecourse 12\n'
+                '• /setthumb 12\n'
+                '• /importcsv sample_courses.csv\n'
+                '• CSV file upload bhi supported hai\n'
+                '• /listcourses\n'
+                '• /feature 12\n'
+                '• /unfeature 12\n'
+                '• /stats\n'
+                '• /pendingpayments\n'
+                '• /grant user_id course_id'
+            )
+        return text
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
@@ -72,26 +119,8 @@ class BotHandlers:
             return
         if not await self.ensure_access(update, context):
             return
-        text = (
-            '📖 <b>Help</b>\n\n'
-            'User:\n'
-            '• /search &lt;keyword&gt;\n'
-            '• /categories\n'
-            '• /featured\n'
-            '• normal text search bhi kaam karega\n\n'
-            'Admin:\n'
-            '• /addcourse\n'
-            '• /updatecourse\n'
-            '• /restorecourse 12\n'
-            '• /setthumb 12\n'
-            '• /importcsv sample_courses.csv\n'
-            '• CSV file upload bhi supported hai\n\n'
-            'Examples:\n'
-            '• /search python\n'
-            '• harkirat\n'
-            '• dsa'
-        )
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+        user = update.effective_user
+        await self._reply_user_scoped(update, self._help_text(bool(user and is_admin(user.id))), parse_mode=ParseMode.HTML)
 
     async def categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
@@ -101,9 +130,9 @@ class BotHandlers:
             return
         cats = self.db.get_categories()
         if not cats:
-            await update.message.reply_text('❌ No categories found.')
+            await self._reply_user_scoped(update, '❌ No categories found.')
             return
-        await update.message.reply_text('📚 <b>Categories</b>', parse_mode=ParseMode.HTML, reply_markup=categories_keyboard(cats, page=0))
+        await self._reply_user_scoped(update, '📚 <b>Categories</b>', parse_mode=ParseMode.HTML, reply_markup=categories_keyboard(cats, page=0))
 
     async def featured(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
@@ -121,7 +150,7 @@ class BotHandlers:
             return
         query = ' '.join(context.args).strip()
         if not query:
-            await update.message.reply_text('Usage:\n/search python')
+            await self._reply_user_scoped(update, 'Usage:\n/search python')
             return
         await self.run_search(update, query, page=0)
 
@@ -152,7 +181,10 @@ class BotHandlers:
             return
 
         if suggestions:
-            await message.reply_text('❌ Exact result nahi mila.\n\nShayad aap yeh dhundh rahe the:', reply_markup=suggestions_keyboard(suggestions))
+            await message.reply_text(
+                '❌ Exact result nahi mila.\n\nShayad aap yeh dhundh rahe the:',
+                reply_markup=suggestions_keyboard(suggestions),
+            )
             return
 
         await message.reply_text('❌ Koi course nahi mila.')
@@ -180,8 +212,9 @@ class BotHandlers:
         await self.run_search(update, text, page=0)
 
     async def send_search_page_callback(self, query, user, search_query: str, page: int):
-        total = self.db.count_search_courses(search_query)
-        results = self.db.search_courses(search_query, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        result = self.search_service.search_with_suggestions(search_query, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        total = result['total']
+        results = result['results']
         if not results:
             await query.message.reply_text('❌ Is page me koi results nahi mile.')
             return
@@ -216,25 +249,24 @@ class BotHandlers:
         )
 
     async def notify_admins_pending_purchase(self, context: ContextTypes.DEFAULT_TYPE, course: dict, user):
-        from config import ADMIN_IDS
-        for admin_id in ADMIN_IDS:
+        for admin_id in sorted(ADMIN_IDS):
             try:
                 await context.bot.send_message(
                     chat_id=admin_id,
                     text=(
-                        '🧾 <b>New Premium Access Request</b>\n\n'
+                        '🧾 New payment request\n\n'
                         f'User ID: <code>{user.id}</code>\n'
-                        f'Username: @{user.username}\n'
+                        f'Username: @{escape_html(user.username) if user.username else "-"}\n'
+                        f'Course ID: {course["id"]}\n'
                         f'Course: {escape_html(course["title"])}\n\n'
-                        f'Grant command:\n<code>/grant {user.id} {course["id"]}</code>'
+                        f'Grant command: <code>/grant {user.id} {course["id"]}</code>'
                     ),
                     parse_mode=ParseMode.HTML,
                 )
             except Exception:
-                logger.exception('Failed to notify admin %s', admin_id)
+                logger.exception('Failed to notify admin %s for pending purchase', admin_id)
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self.track_user(update)
         query = update.callback_query
         if not query:
             return
@@ -249,7 +281,13 @@ class BotHandlers:
             if data == 'joincheck::verify':
                 joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
                 if joined:
-                    await query.edit_message_text(get_unlocked_welcome_text(user.first_name if user else ''), parse_mode=ParseMode.HTML, reply_markup=home_keyboard())
+                    if self._is_group_chat(update):
+                        await query.message.reply_text(
+                            get_unlocked_welcome_text(user.first_name if user else ''),
+                            parse_mode=ParseMode.HTML,
+                        )
+                    else:
+                        await query.edit_message_text(get_unlocked_welcome_text(user.first_name if user else ''), parse_mode=ParseMode.HTML, reply_markup=home_keyboard())
                 else:
                     await query.message.reply_text(
                         '❌ Abhi bhi required Telegram channels joined nahi mile.\n\nPehle sab required channels join karo, phir dobara check karo.',
@@ -270,11 +308,7 @@ class BotHandlers:
             if data == 'home::help':
                 if not await self.ensure_access(update, context):
                     return
-                await query.edit_message_text(
-                    '📖 <b>Help</b>\n\n• /search &lt;keyword&gt;\n• /categories\n• /featured\n• normal text search bhi kaam karega',
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=home_keyboard(),
-                )
+                await query.edit_message_text(self._help_text(bool(user and is_admin(user.id))), parse_mode=ParseMode.HTML, reply_markup=home_keyboard())
                 return
 
             if data.startswith('page::'):
@@ -603,7 +637,7 @@ class BotHandlers:
         if not update.message or not update.message.document:
             return
         doc = update.message.document
-        if not doc.file_name.lower().endswith('.csv'):
+        if not (doc.file_name or '').lower().endswith('.csv'):
             return
         temp_path = Path('/tmp') / doc.file_name
         tg_file = await context.bot.get_file(doc.file_id)

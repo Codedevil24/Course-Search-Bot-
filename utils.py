@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from difflib import get_close_matches
+from difflib import SequenceMatcher, get_close_matches
 import html
 from typing import Iterable
 
@@ -34,15 +34,48 @@ def unique_keep_order(items: Iterable[str]) -> list[str]:
     return result
 
 
+def tokenize_query(text: str | None) -> list[str]:
+    cleaned = normalize_text(text)
+    if not cleaned:
+        return []
+    return [part for part in cleaned.replace('/', ' ').replace('-', ' ').split() if part]
+
+
 def suggest_keyword(query: str, all_keywords: list[str]) -> list[str]:
     cleaned = normalize_text(query)
     if not cleaned:
         return []
 
-    close = get_close_matches(cleaned, [normalize_text(x) for x in all_keywords], n=8, cutoff=0.5)
-    partial = [kw for kw in all_keywords if cleaned in normalize_text(kw)][:8]
-    starts = [kw for kw in all_keywords if normalize_text(kw).startswith(cleaned)][:8]
-    return unique_keep_order(starts + partial + close + all_keywords[:0])
+    normalized_map: dict[str, str] = {}
+    for original in all_keywords:
+        normalized = normalize_text(original)
+        if normalized and normalized not in normalized_map:
+            normalized_map[normalized] = original.strip()
+
+    normalized_values = list(normalized_map.keys())
+    starts = [normalized_map[n] for n in normalized_values if n.startswith(cleaned)][:10]
+    contains = [normalized_map[n] for n in normalized_values if cleaned in n and normalized_map[n] not in starts][:10]
+
+    token_hits: list[str] = []
+    for token in tokenize_query(cleaned):
+        for n in normalized_values:
+            if token in n:
+                token_hits.append(normalized_map[n])
+
+    close_normalized = get_close_matches(cleaned, normalized_values, n=10, cutoff=0.45)
+    close = [normalized_map[n] for n in close_normalized]
+
+    ranked = starts + contains + token_hits + close
+    if not ranked:
+        scored = []
+        for n, original in normalized_map.items():
+            ratio = SequenceMatcher(None, cleaned, n).ratio()
+            if ratio >= 0.35:
+                scored.append((ratio, original))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        ranked = [item for _, item in scored[:10]]
+
+    return unique_keep_order(ranked)[:10]
 
 
 def escape_html(text: str | None) -> str:

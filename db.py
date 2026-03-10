@@ -6,7 +6,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from config import PAGE_SIZE, SUPABASE_DB_URL
-from utils import normalize_text, unique_keep_order
+from utils import normalize_text, tokenize_query, unique_keep_order
 
 
 class Database:
@@ -564,54 +564,88 @@ class Database:
                     'pending_purchases': pending_purchases,
                 }
 
+
+
+    def get_admin_ids_fallback(self) -> list[int]:
+        from config import ADMIN_IDS
+        return sorted(ADMIN_IDS)
+
+    def _build_search_sql(self, query: str) -> tuple[str, list[Any], str, list[Any]]:
+        q = normalize_text(query)
+        tokens = tokenize_query(q)
+        exact_q = q
+        prefix_q = f'{q}%'
+        like_q = f'%{q}%'
+
+        where_parts = [
+            "LOWER(COALESCE(c.title, '')) LIKE %s",
+            "LOWER(COALESCE(c.instructor, '')) LIKE %s",
+            "LOWER(COALESCE(c.category, '')) LIKE %s",
+            "LOWER(COALESCE(c.description, '')) LIKE %s",
+            "LOWER(COALESCE(k.keyword, '')) LIKE %s",
+        ]
+        where_params: list[Any] = [like_q, like_q, like_q, like_q, like_q]
+
+        token_score_parts: list[str] = []
+        token_score_params: list[Any] = []
+        for token in tokens:
+            token_like = f'%{token}%'
+            where_parts.extend([
+                "LOWER(COALESCE(c.title, '')) LIKE %s",
+                "LOWER(COALESCE(c.instructor, '')) LIKE %s",
+                "LOWER(COALESCE(c.category, '')) LIKE %s",
+                "LOWER(COALESCE(c.description, '')) LIKE %s",
+                "LOWER(COALESCE(k.keyword, '')) LIKE %s",
+            ])
+            where_params.extend([token_like, token_like, token_like, token_like, token_like])
+            token_score_parts.append(
+                "CASE WHEN LOWER(COALESCE(c.title, '')) LIKE %s THEN 8 ELSE 0 END + "
+                "CASE WHEN LOWER(COALESCE(k.keyword, '')) LIKE %s THEN 6 ELSE 0 END + "
+                "CASE WHEN LOWER(COALESCE(c.instructor, '')) LIKE %s THEN 4 ELSE 0 END + "
+                "CASE WHEN LOWER(COALESCE(c.category, '')) LIKE %s THEN 3 ELSE 0 END + "
+                "CASE WHEN LOWER(COALESCE(c.description, '')) LIKE %s THEN 1 ELSE 0 END"
+            )
+            token_score_params.extend([token_like, token_like, token_like, token_like, token_like])
+
+        score_sql = (
+            "CASE WHEN LOWER(COALESCE(c.title, '')) = %s THEN 100 ELSE 0 END + "
+            "CASE WHEN LOWER(COALESCE(k.keyword, '')) = %s THEN 90 ELSE 0 END + "
+            "CASE WHEN LOWER(COALESCE(c.instructor, '')) = %s THEN 70 ELSE 0 END + "
+            "CASE WHEN LOWER(COALESCE(c.category, '')) = %s THEN 60 ELSE 0 END + "
+            "CASE WHEN LOWER(COALESCE(c.title, '')) LIKE %s THEN 50 ELSE 0 END + "
+            "CASE WHEN LOWER(COALESCE(k.keyword, '')) LIKE %s THEN 40 ELSE 0 END + "
+            "CASE WHEN LOWER(COALESCE(c.instructor, '')) LIKE %s THEN 25 ELSE 0 END + "
+            "CASE WHEN LOWER(COALESCE(c.category, '')) LIKE %s THEN 15 ELSE 0 END + "
+            "CASE WHEN LOWER(COALESCE(c.description, '')) LIKE %s THEN 8 ELSE 0 END"
+        )
+        score_params: list[Any] = [exact_q, exact_q, exact_q, exact_q, prefix_q, prefix_q, like_q, like_q, like_q]
+        if token_score_parts:
+            score_sql += ' + ' + ' + '.join(f'({part})' for part in token_score_parts)
+            score_params.extend(token_score_params)
+
+        where_sql = ' OR '.join(f'({part})' for part in where_parts)
+        return score_sql, score_params, where_sql, where_params
+
     def search_courses(self, query: str, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
         q = normalize_text(query)
         if not q:
             return []
         limit = limit or PAGE_SIZE
-        exact_q = q
-        prefix_q = f'{q}%'
-        like_q = f'%{q}%'
+        score_sql, score_params, where_sql, where_params = self._build_search_sql(q)
         with self.get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    '''
+                    f'''
                     SELECT c.*
                     FROM courses c
                     LEFT JOIN keywords k ON k.course_id = c.id
                     WHERE c.is_active = TRUE
-                      AND (
-                        LOWER(COALESCE(c.title, '')) LIKE %s OR
-                        LOWER(COALESCE(c.instructor, '')) LIKE %s OR
-                        LOWER(COALESCE(c.category, '')) LIKE %s OR
-                        LOWER(COALESCE(c.description, '')) LIKE %s OR
-                        LOWER(COALESCE(k.keyword, '')) LIKE %s
-                      )
+                      AND ({where_sql})
                     GROUP BY c.id
-                    ORDER BY
-                      CASE
-                        WHEN LOWER(COALESCE(c.title, '')) = %s THEN 1
-                        WHEN LOWER(COALESCE(k.keyword, '')) = %s THEN 2
-                        WHEN LOWER(COALESCE(c.title, '')) LIKE %s THEN 3
-                        WHEN LOWER(COALESCE(c.instructor, '')) = %s THEN 4
-                        WHEN LOWER(COALESCE(c.category, '')) = %s THEN 5
-                        WHEN LOWER(COALESCE(c.title, '')) LIKE %s THEN 6
-                        WHEN LOWER(COALESCE(k.keyword, '')) LIKE %s THEN 7
-                        WHEN LOWER(COALESCE(c.instructor, '')) LIKE %s THEN 8
-                        WHEN LOWER(COALESCE(c.category, '')) LIKE %s THEN 9
-                        WHEN LOWER(COALESCE(c.description, '')) LIKE %s THEN 10
-                        ELSE 11
-                      END,
-                      c.updated_at DESC,
-                      c.created_at DESC
+                    ORDER BY ({score_sql}) DESC, c.updated_at DESC, c.created_at DESC
                     LIMIT %s OFFSET %s
                     ''',
-                    (
-                        like_q, like_q, like_q, like_q, like_q,
-                        exact_q, exact_q, prefix_q, exact_q, exact_q,
-                        like_q, like_q, like_q, like_q, like_q,
-                        limit, offset,
-                    ),
+                    where_params + score_params + [limit, offset],
                 )
                 return [dict(r) for r in cur.fetchall()]
 
@@ -619,24 +653,18 @@ class Database:
         q = normalize_text(query)
         if not q:
             return 0
-        like_q = f'%{q}%'
+        _, _, where_sql, where_params = self._build_search_sql(q)
         with self.get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    '''
+                    f'''
                     SELECT COUNT(DISTINCT c.id) AS c
                     FROM courses c
                     LEFT JOIN keywords k ON k.course_id = c.id
                     WHERE c.is_active = TRUE
-                      AND (
-                        LOWER(COALESCE(c.title, '')) LIKE %s OR
-                        LOWER(COALESCE(c.instructor, '')) LIKE %s OR
-                        LOWER(COALESCE(c.category, '')) LIKE %s OR
-                        LOWER(COALESCE(c.description, '')) LIKE %s OR
-                        LOWER(COALESCE(k.keyword, '')) LIKE %s
-                      )
+                      AND ({where_sql})
                     ''',
-                    (like_q, like_q, like_q, like_q, like_q),
+                    where_params,
                 )
                 return cur.fetchone()['c']
 

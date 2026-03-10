@@ -34,3 +34,9 @@ uvicorn app:app --host 0.0.0.0 --port 10000
 - `.env` ke existing variable names same rakhe gaye hain.
 - Existing callback prefixes `course::`, `cat::`, `suggest::`, `featured::all`, `joincheck::verify` break nahi kiye gaye.
 - Old `/addcourse` format abhi bhi kaam karega.
+
+
+## v3.1.2 fixes
+- improved search matching and suggestions
+- help command shows admin commands only to admins
+- group /start and force-join flow now replies in user-scoped way

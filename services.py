@@ -16,5 +16,5 @@ class SearchService:
         if results:
             return {'results': results, 'suggestions': [], 'total': total}
 
-        suggestions = unique_keep_order(suggest_keyword(query, self.db.get_all_keywords()))
+        suggestions = unique_keep_order(suggest_keyword(query, self.db.get_all_keywords()))[:10]
         return {'results': [], 'suggestions': suggestions, 'total': 0}
