@@ -1,30 +1,20 @@
 from db import Database
-from utils import suggest_keyword
+from utils import unique_keep_order, suggest_keyword
 
 
 class SearchService:
     def __init__(self, db: Database):
         self.db = db
 
-    def search_with_suggestions(self, query: str) -> dict:
-        query = (query or "").strip()
+    def search_with_suggestions(self, query: str, limit: int, offset: int = 0) -> dict:
+        query = (query or '').strip()
         if not query:
-            return {"results": [], "suggestions": []}
+            return {'results': [], 'suggestions': [], 'total': 0}
 
-        results = self.db.search_courses(query, limit=10)
+        total = self.db.count_search_courses(query)
+        results = self.db.search_courses(query, limit=limit, offset=offset)
         if results:
-            return {"results": results, "suggestions": []}
+            return {'results': results, 'suggestions': [], 'total': total}
 
-        all_keywords = self.db.get_all_keywords()
-        suggestions = suggest_keyword(query, all_keywords)
-
-        # remove duplicates while keeping order
-        seen = set()
-        unique_suggestions = []
-        for item in suggestions:
-            key = item.strip().lower()
-            if key and key not in seen:
-                seen.add(key)
-                unique_suggestions.append(item)
-
-        return {"results": [], "suggestions": unique_suggestions}
+        suggestions = unique_keep_order(suggest_keyword(query, self.db.get_all_keywords()))
+        return {'results': [], 'suggestions': suggestions, 'total': 0}

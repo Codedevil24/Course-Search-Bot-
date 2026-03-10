@@ -1,44 +1,36 @@
-# Code Devil Course Bot v3
+# Code Devil Course Bot v3.1
 
-## Features
-- Web service + background polling architecture
-- Forced Telegram join gate before bot usage
-- Better `/start` welcome UI
-- `/search` command
+## New in v3.1
+- Non-breaking upgrade over your existing project
+- Smart search ranking
+- Search/category/featured pagination using `PAGE_SIZE`
+- Duplicate course protection
+- `/updatecourse`, `/restorecourse`, `/setthumb`, `/pendingpayments`
+- Telegram CSV upload import support
+- Paid-course access request flow with admin notification
+- Safer button error handling
+- Better analytics dashboard
+
+## Existing features retained
+- Force subscribe gate
+- `/start`, `/help`, `/search`
 - Normal text search
 - Categories
-- Exact category filtering
 - Featured courses
 - Typo suggestions
-- Inline search lock for unsubscribed users
-- Paid course selling flow
-- Premium access grant
-- CSV import
-- Telegram photo thumbnail save
-- Active users analytics
-- Render web service compatible
-
-## Structure
-- `app.py` -> FastAPI health server
-- `bot.py` -> Telegram bot startup and polling
-- `config.py` -> environment config
-- `db.py` -> Postgres/Supabase queries
-- `handlers.py` -> commands, buttons, access guard
-- `keyboards.py` -> inline keyboards
-- `services.py` -> search service
-- `utils.py` -> formatting and force-sub helpers
-- `csv_importer.py` -> CSV import helper
-
-## Install
-```bash
-pip install -r requirements.txt
-```
+- Paid/free course flow
+- `/addcourse`, `/deletecourse`, `/listcourses`, `/feature`, `/unfeature`, `/stats`, `/grant`, `/importcsv`
+- Inline query support
+- FastAPI + polling background thread
+- Render/UptimeRobot compatible structure
 
 ## Run
 ```bash
+pip install -r requirements.txt
 uvicorn app:app --host 0.0.0.0 --port 10000
 ```
 
 ## Important
-- Bot ko required Telegram channels me add karo.
-- Best hai bot ko admin banao, tab membership check reliable rahega.
+- `.env` ke existing variable names same rakhe gaye hain.
+- Existing callback prefixes `course::`, `cat::`, `suggest::`, `featured::all`, `joincheck::verify` break nahi kiye gaye.
+- Old `/addcourse` format abhi bhi kaam karega.

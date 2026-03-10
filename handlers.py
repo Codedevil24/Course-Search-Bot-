@@ -1,27 +1,29 @@
-from telegram import Update, InlineQueryResultArticle, InputTextMessageContent
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from telegram import InputTextMessageContent, InlineQueryResultArticle, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+from config import PAGE_SIZE, PREMIUM_CHANNEL_LINK
+from csv_importer import import_courses_from_csv
 from db import Database
-from keyboards import (
-    course_keyboard,
-    categories_keyboard,
-    search_results_keyboard,
-    suggestions_keyboard,
-    locked_access_keyboard,
-    home_keyboard,
-)
+from keyboards import categories_keyboard, course_keyboard, home_keyboard, locked_access_keyboard, search_results_keyboard, suggestions_keyboard
 from services import SearchService
 from utils import (
-    is_admin,
+    escape_html,
     format_course_caption,
-    is_user_joined_required_channels,
+    format_inline_course_message,
+    get_locked_reply_text,
     get_locked_welcome_text,
     get_unlocked_welcome_text,
-    get_locked_reply_text,
+    is_admin,
+    is_user_joined_required_channels,
 )
-from config import PREMIUM_CHANNEL_LINK
-from csv_importer import import_courses_from_csv
+
+logger = logging.getLogger(__name__)
 
 
 class BotHandlers:
@@ -32,486 +34,360 @@ class BotHandlers:
     def track_user(self, update: Update):
         user = update.effective_user
         if user:
-            self.db.upsert_user(
-                user_id=user.id,
-                username=user.username or "",
-                first_name=user.first_name or "",
-                last_name=user.last_name or "",
-            )
+            self.db.upsert_user(user_id=user.id, username=user.username or '', first_name=user.first_name or '', last_name=user.last_name or '')
 
     async def ensure_access(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         user = update.effective_user
         if not user:
             return False
-
         joined = await is_user_joined_required_channels(context.bot, user.id)
         if joined:
             return True
 
         text = get_locked_reply_text()
-
         if update.message:
-            await update.message.reply_text(
-                text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=locked_access_keyboard(),
-            )
-            return False
-
-        if update.callback_query and update.callback_query.message:
-            await update.callback_query.message.reply_text(
-                text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=locked_access_keyboard(),
-            )
-            return False
-
+            await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=locked_access_keyboard())
+        elif update.callback_query and update.callback_query.message:
+            await update.callback_query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=locked_access_keyboard())
         return False
 
     async def send_start_ui(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        first_name = user.first_name if user else ""
-        joined = False
-
-        if user:
-            joined = await is_user_joined_required_channels(context.bot, user.id)
-
+        first_name = user.first_name if user else ''
+        joined = await is_user_joined_required_channels(context.bot, user.id) if user else False
         if not update.message:
             return
-
         if joined:
-            await update.message.reply_text(
-                get_unlocked_welcome_text(first_name),
-                parse_mode=ParseMode.HTML,
-                reply_markup=home_keyboard(),
-            )
+            await update.message.reply_text(get_unlocked_welcome_text(first_name), parse_mode=ParseMode.HTML, reply_markup=home_keyboard())
         else:
-            await update.message.reply_text(
-                get_locked_welcome_text(first_name),
-                parse_mode=ParseMode.HTML,
-                reply_markup=locked_access_keyboard(),
-            )
+            await update.message.reply_text(get_locked_welcome_text(first_name), parse_mode=ParseMode.HTML, reply_markup=locked_access_keyboard())
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-        if not update.message:
-            return
         await self.send_start_ui(update, context)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         if not update.message:
             return
-
         if not await self.ensure_access(update, context):
             return
-
         text = (
-            "📖 <b>Help</b>\n\n"
-            "User:\n"
-            "• /search &lt;keyword&gt;\n"
-            "• /categories\n"
-            "• /featured\n"
-            "• normal text search bhi kaam karega\n\n"
-            "Examples:\n"
-            "• /search python\n"
-            "• /search dsa\n"
-            "• harkirat\n"
-            "• web dev\n\n"
-            "Admin:\n"
-            "• /addcourse\n"
-            "• /deletecourse\n"
-            "• /listcourses\n"
-            "• /feature\n"
-            "• /unfeature\n"
-            "• /stats\n"
-            "• /grant\n"
-            "• /importcsv\n"
-            "• reply me photo bhejo to thumbnail save ho jayega"
+            '📖 <b>Help</b>\n\n'
+            'User:\n'
+            '• /search &lt;keyword&gt;\n'
+            '• /categories\n'
+            '• /featured\n'
+            '• normal text search bhi kaam karega\n\n'
+            'Admin:\n'
+            '• /addcourse\n'
+            '• /updatecourse\n'
+            '• /restorecourse 12\n'
+            '• /setthumb 12\n'
+            '• /importcsv sample_courses.csv\n'
+            '• CSV file upload bhi supported hai\n\n'
+            'Examples:\n'
+            '• /search python\n'
+            '• harkirat\n'
+            '• dsa'
         )
-        await update.message.reply_text(
-            text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=home_keyboard(),
-        )
-
-    async def featured(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self.track_user(update)
-
-        if not update.message:
-            return
-
-        if not await self.ensure_access(update, context):
-            return
-
-        results = self.db.get_featured_courses()
-        if not results:
-            await update.message.reply_text("Abhi koi featured course nahi hai.")
-            return
-
-        await update.message.reply_text(
-            "⭐ <b>Featured Courses</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=search_results_keyboard(results),
-        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         if not update.message:
             return
-
         if not await self.ensure_access(update, context):
             return
-
         cats = self.db.get_categories()
-        await update.message.reply_text(
-            "📚 <b>Categories</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=categories_keyboard(cats),
-        )
+        if not cats:
+            await update.message.reply_text('❌ No categories found.')
+            return
+        await update.message.reply_text('📚 <b>Categories</b>', parse_mode=ParseMode.HTML, reply_markup=categories_keyboard(cats, page=0))
+
+    async def featured(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        if not update.message:
+            return
+        if not await self.ensure_access(update, context):
+            return
+        await self.send_featured_page(update.message.reply_text, page=0)
 
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         if not update.message:
             return
-
         if not await self.ensure_access(update, context):
             return
-
-        query = " ".join(context.args).strip()
+        query = ' '.join(context.args).strip()
         if not query:
-            await update.message.reply_text("Usage:\n/search python")
+            await update.message.reply_text('Usage:\n/search python')
             return
+        await self.run_search(update, query, page=0)
 
-        await self.run_search(update, context, query)
-
-    async def run_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query: str):
-        result = self.search_service.search_with_suggestions(query)
-        results = result["results"]
-        suggestions = result["suggestions"]
+    async def run_search(self, update: Update, query: str, page: int = 0):
+        offset = page * PAGE_SIZE
+        result = self.search_service.search_with_suggestions(query, limit=PAGE_SIZE, offset=offset)
+        results = result['results']
+        suggestions = result['suggestions']
+        total = result['total']
 
         user = update.effective_user
-        self.db.log_search(
-            user_id=user.id if user else None,
-            username=user.username if user and user.username else "",
-            query=query,
-            matched_count=len(results),
-        )
+        self.db.log_search(user_id=user.id if user else None, username=user.username if user and user.username else '', query=query, matched_count=total)
 
-        if not update.message:
+        message = update.message
+        if not message:
             return
 
         if results:
-            if len(results) == 1:
-                await self.send_course_card(update, results[0])
+            if total == 1 and page == 0:
+                self.db.log_click(user.id if user else None, user.username if user and user.username else '', results[0]['id'], 'open_course')
+                await self.send_course_card(message.reply_text, message.reply_photo, results[0])
                 return
-
-            await update.message.reply_text(
-                f"🔎 <b>{query}</b> ke liye {len(results)} matching courses mile.",
+            await message.reply_text(
+                f'🔎 <b>{escape_html(query)}</b> ke liye {total} matching courses mile.',
                 parse_mode=ParseMode.HTML,
-                reply_markup=search_results_keyboard(results),
+                reply_markup=search_results_keyboard(results, 'search', query, page, total),
             )
             return
 
         if suggestions:
-            await update.message.reply_text(
-                "❌ Exact result nahi mila.\n\nShayad aap yeh dhundh rahe the:",
-                reply_markup=suggestions_keyboard(suggestions),
-            )
+            await message.reply_text('❌ Exact result nahi mila.\n\nShayad aap yeh dhundh rahe the:', reply_markup=suggestions_keyboard(suggestions))
             return
 
-        await update.message.reply_text("❌ Koi course nahi mila.")
+        await message.reply_text('❌ Koi course nahi mila.')
 
-    async def send_course_card(self, update: Update, course: dict):
-        if not update.message:
-            return
-
+    async def send_course_card(self, reply_text_fn, reply_photo_fn, course: dict):
         caption = format_course_caption(course)
-        thumbnail = course.get("thumbnail")
-
+        thumbnail = course.get('thumbnail')
         if thumbnail:
             try:
-                await update.message.reply_photo(
-                    photo=thumbnail,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=course_keyboard(course),
-                )
+                await reply_photo_fn(photo=thumbnail, caption=caption, parse_mode=ParseMode.HTML, reply_markup=course_keyboard(course))
                 return
             except Exception:
-                pass
-
-        await update.message.reply_text(
-            caption,
-            parse_mode=ParseMode.HTML,
-            reply_markup=course_keyboard(course),
-        )
+                logger.exception('Failed to send thumbnail, falling back to text.')
+        await reply_text_fn(caption, parse_mode=ParseMode.HTML, reply_markup=course_keyboard(course))
 
     async def text_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         if not update.message or not update.message.text:
             return
-
         if not await self.ensure_access(update, context):
             return
-
         text = update.message.text.strip()
-        if text.startswith("/"):
+        if text.startswith('/') or len(text) < 2:
             return
-        if len(text) < 2:
-            return
+        await self.run_search(update, text, page=0)
 
-        await self.run_search(update, context, text)
+    async def send_search_page_callback(self, query, user, search_query: str, page: int):
+        total = self.db.count_search_courses(search_query)
+        results = self.db.search_courses(search_query, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        if not results:
+            await query.message.reply_text('❌ Is page me koi results nahi mile.')
+            return
+        await query.edit_message_text(
+            f'🔎 <b>{escape_html(search_query)}</b> ke liye {total} matching courses mile.',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'search', search_query, page, total),
+        )
+
+    async def send_category_page(self, query, category: str, page: int):
+        total = self.db.count_courses_by_category(category)
+        results = self.db.search_courses_by_category(category, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        if not results:
+            await query.message.reply_text('❌ Is category me koi course nahi mila.')
+            return
+        await query.edit_message_text(
+            f'🗂 <b>{escape_html(category)}</b> category ke {total} courses:',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'category', category, page, total),
+        )
+
+    async def send_featured_page(self, responder, page: int):
+        total = self.db.count_featured_courses()
+        results = self.db.get_featured_courses(limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        if not results:
+            await responder('❌ No featured courses found.')
+            return
+        await responder(
+            f'⭐ <b>Featured Courses</b>\nTotal: {total}',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'featured', 'all', page, total),
+        )
+
+    async def notify_admins_pending_purchase(self, context: ContextTypes.DEFAULT_TYPE, course: dict, user):
+        from config import ADMIN_IDS
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=(
+                        '🧾 <b>New Premium Access Request</b>\n\n'
+                        f'User ID: <code>{user.id}</code>\n'
+                        f'Username: @{user.username}\n'
+                        f'Course: {escape_html(course["title"])}\n\n'
+                        f'Grant command:\n<code>/grant {user.id} {course["id"]}</code>'
+                    ),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                logger.exception('Failed to notify admin %s', admin_id)
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         query = update.callback_query
         if not query:
             return
-
         await query.answer()
-
-        data = query.data or ""
+        data = query.data or ''
         user = update.effective_user
 
         try:
-            if data == "joincheck::verify":
-                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
+            if data == 'noop::page':
+                return
 
+            if data == 'joincheck::verify':
+                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
                 if joined:
-                    await query.edit_message_text(
-                        get_unlocked_welcome_text(user.first_name if user else ""),
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=home_keyboard(),
-                    )
+                    await query.edit_message_text(get_unlocked_welcome_text(user.first_name if user else ''), parse_mode=ParseMode.HTML, reply_markup=home_keyboard())
                 else:
                     await query.message.reply_text(
-                        "❌ Abhi bhi required Telegram channels joined nahi mile.\n\n"
-                        "Pehle sab required channels join karo, phir dobara check karo.",
+                        '❌ Abhi bhi required Telegram channels joined nahi mile.\n\nPehle sab required channels join karo, phir dobara check karo.',
                         reply_markup=locked_access_keyboard(),
                     )
                 return
 
-            if data == "home::categories":
-                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
-                if not joined:
-                    await query.message.reply_text(
-                        get_locked_reply_text(),
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=locked_access_keyboard(),
-                    )
-                    return
-
-                cats = self.db.get_categories()
-                await query.edit_message_text(
-                    "📚 <b>Categories</b>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=categories_keyboard(cats),
-                )
+            if data == 'home::main':
+                await query.edit_message_text('🏠 <b>Home</b>\nNeeche options use karo.', parse_mode=ParseMode.HTML, reply_markup=home_keyboard())
                 return
 
-            if data == "home::help":
-                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
-                if not joined:
-                    await query.message.reply_text(
-                        get_locked_reply_text(),
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=locked_access_keyboard(),
-                    )
+            if data == 'home::categories':
+                if not await self.ensure_access(update, context):
                     return
+                await query.edit_message_text('📚 <b>Categories</b>', parse_mode=ParseMode.HTML, reply_markup=categories_keyboard(self.db.get_categories(), page=0))
+                return
 
+            if data == 'home::help':
+                if not await self.ensure_access(update, context):
+                    return
                 await query.edit_message_text(
-                    "📖 <b>Help</b>\n\n"
-                    "• /search &lt;keyword&gt;\n"
-                    "• /categories\n"
-                    "• /featured\n"
-                    "• normal text search bhi kaam karega\n\n"
-                    "Example:\n"
-                    "• python\n"
-                    "• flutter\n"
-                    "• dsa\n"
-                    "• harkirat",
+                    '📖 <b>Help</b>\n\n• /search &lt;keyword&gt;\n• /categories\n• /featured\n• normal text search bhi kaam karega',
                     parse_mode=ParseMode.HTML,
                     reply_markup=home_keyboard(),
                 )
                 return
 
-            if data.startswith("course::"):
-                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
-                if not joined:
-                    await query.message.reply_text(
-                        get_locked_reply_text(),
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=locked_access_keyboard(),
-                    )
+            if data.startswith('page::'):
+                if not await self.ensure_access(update, context):
                     return
+                _, scope, value, page_text = data.split('::', 3)
+                page = int(page_text)
+                if scope == 'search':
+                    await self.send_search_page_callback(query, user, value, page)
+                elif scope == 'category':
+                    await self.send_category_page(query, value, page)
+                elif scope == 'featured':
+                    total = self.db.count_featured_courses()
+                    results = self.db.get_featured_courses(limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+                    await query.edit_message_text(
+                        f'⭐ <b>Featured Courses</b>\nTotal: {total}',
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=search_results_keyboard(results, 'featured', 'all', page, total),
+                    )
+                elif scope == 'cats':
+                    await query.edit_message_text('📚 <b>Categories</b>', parse_mode=ParseMode.HTML, reply_markup=categories_keyboard(self.db.get_categories(), page=page))
+                return
 
-                course_id = int(data.split("::", 1)[1])
+            if data.startswith('course::'):
+                if not await self.ensure_access(update, context):
+                    return
+                course_id = int(data.split('::', 1)[1])
                 course = self.db.get_course(course_id)
-
-                if not course:
-                    await query.message.reply_text("❌ Course not found in database.")
+                if not course or not course.get('is_active', True):
+                    await query.message.reply_text('❌ Course not found in database.')
                     return
-
-                self.db.log_click(
-                    user.id if user else None,
-                    user.username if user and user.username else "",
-                    course_id,
-                    "open_course",
-                )
-
-                caption = format_course_caption(course)
-                thumbnail = course.get("thumbnail")
-
-                if thumbnail:
-                    try:
-                        await query.message.reply_photo(
-                            photo=thumbnail,
-                            caption=caption,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=course_keyboard(course),
-                        )
-                    except Exception:
-                        await query.message.reply_text(
-                            caption,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=course_keyboard(course),
-                        )
-                else:
-                    await query.message.reply_text(
-                        caption,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=course_keyboard(course),
-                    )
+                self.db.log_click(user.id if user else None, user.username if user and user.username else '', course_id, 'open_course')
+                await self.send_course_card(query.message.reply_text, query.message.reply_photo, course)
                 return
 
-            if data.startswith("cat::"):
-                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
-                if not joined:
-                    await query.message.reply_text(
-                        get_locked_reply_text(),
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=locked_access_keyboard(),
-                    )
+            if data.startswith('cat::'):
+                if not await self.ensure_access(update, context):
                     return
-
-                category = data.split("::", 1)[1]
-                results = self.db.search_courses_by_category(category, limit=20)
-
-                if not results:
-                    await query.message.reply_text("❌ Is category me koi course nahi mila.")
-                    return
-
-                await query.edit_message_text(
-                    f"🗂 <b>{category}</b> category ke courses:",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=search_results_keyboard(results),
-                )
+                _, category, page_text = data.split('::', 2)
+                await self.send_category_page(query, category, int(page_text))
                 return
 
-            if data.startswith("suggest::"):
-                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
-                if not joined:
-                    await query.message.reply_text(
-                        get_locked_reply_text(),
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=locked_access_keyboard(),
-                    )
+            if data.startswith('suggest::'):
+                if not await self.ensure_access(update, context):
                     return
-
-                keyword = data.split("::", 1)[1]
-                results = self.db.search_courses(keyword, limit=10)
-
-                if not results:
-                    await query.message.reply_text("❌ Suggested keyword se bhi course nahi mila.")
-                    return
-
-                await query.edit_message_text(
-                    f"🔎 Suggested results for <b>{keyword}</b>:",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=search_results_keyboard(results),
-                )
+                _, keyword, page_text = data.split('::', 2)
+                await self.send_search_page_callback(query, user, keyword, int(page_text))
                 return
 
-            if data.startswith("premium::"):
-                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
-                if not joined:
-                    await query.message.reply_text(
-                        get_locked_reply_text(),
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=locked_access_keyboard(),
-                    )
+            if data.startswith('premium::'):
+                if not await self.ensure_access(update, context):
                     return
-
-                course_id = int(data.split("::", 1)[1])
+                course_id = int(data.split('::', 1)[1])
                 course = self.db.get_course(course_id)
                 if not course:
-                    await query.message.reply_text("❌ Course not found.")
+                    await query.message.reply_text('❌ Course not found.')
                     return
-
-                link = course.get("premium_channel_link") or PREMIUM_CHANNEL_LINK or "Not configured"
+                link = course.get('premium_channel_link') or PREMIUM_CHANNEL_LINK or 'Not configured'
                 await query.message.reply_text(
-                    f"🔓 Premium access manual approval based hai.\n\n"
-                    f"Course: {course['title']}\n"
-                    f"Purchase ke baad admin se contact karo.\n"
-                    f"Approved hone ke baad premium link diya jayega:\n{link}"
+                    f'🔓 Premium access manual approval based hai.\n\nCourse: {course["title"]}\nPurchase ke baad admin se contact karo.\nApproved hone ke baad premium link diya jayega:\n{link}'
                 )
                 return
 
-            if data == "featured::all":
-                joined = await is_user_joined_required_channels(context.bot, user.id if user else 0)
-                if not joined:
-                    await query.message.reply_text(
-                        get_locked_reply_text(),
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=locked_access_keyboard(),
-                    )
+            if data.startswith('premiumreq::'):
+                if not await self.ensure_access(update, context):
                     return
+                course_id = int(data.split('::', 1)[1])
+                course = self.db.get_course(course_id)
+                if not course:
+                    await query.message.reply_text('❌ Course not found.')
+                    return
+                if not user:
+                    await query.message.reply_text('❌ User not found.')
+                    return
+                _, status = self.db.add_purchase(user.id, user.username or '', course_id)
+                if status == 'approved':
+                    await query.message.reply_text('✅ Aapka access already approved hai. Inbox check karo.')
+                elif status == 'pending':
+                    await query.message.reply_text('⏳ Aapki request already pending hai. Admin approve karenge to DM aa jayega.')
+                else:
+                    await query.message.reply_text('✅ Payment request create ho gayi hai. Admin verify karke access denge.')
+                    await self.notify_admins_pending_purchase(context, course, user)
+                return
 
-                results = self.db.get_featured_courses(limit=20)
+            if data == 'featured::all::0' or data == 'featured::all':
+                if not await self.ensure_access(update, context):
+                    return
+                total = self.db.count_featured_courses()
+                results = self.db.get_featured_courses(limit=PAGE_SIZE, offset=0)
                 if not results:
-                    await query.message.reply_text("❌ No featured courses found.")
+                    await query.message.reply_text('❌ No featured courses found.')
                     return
-
                 await query.edit_message_text(
-                    "⭐ <b>Featured Courses</b>",
+                    f'⭐ <b>Featured Courses</b>\nTotal: {total}',
                     parse_mode=ParseMode.HTML,
-                    reply_markup=search_results_keyboard(results),
+                    reply_markup=search_results_keyboard(results, 'featured', 'all', 0, total),
                 )
                 return
 
-        except Exception as e:
-            print("BUTTON_HANDLER_ERROR:", e)
-            await query.message.reply_text(f"❌ Button error: {e}")
+        except Exception:
+            logger.exception('BUTTON_HANDLER_ERROR')
+            await query.message.reply_text('❌ Button action failed. Please try again.')
 
     async def inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         if user:
-            self.db.upsert_user(
-                user_id=user.id,
-                username=user.username or "",
-                first_name=user.first_name or "",
-                last_name=user.last_name or "",
-            )
-
+            self.db.upsert_user(user_id=user.id, username=user.username or '', first_name=user.first_name or '', last_name=user.last_name or '')
         if not update.inline_query:
             return
-
         joined = await is_user_joined_required_channels(context.bot, user.id) if user else False
         if not joined:
-            await update.inline_query.answer(
-                [],
-                cache_time=1,
-                switch_pm_text="Join required channels first",
-                switch_pm_parameter="start",
-            )
+            await update.inline_query.answer([], cache_time=1, switch_pm_text='Join required channels first', switch_pm_parameter='start')
             return
-
         query = update.inline_query.query.strip()
         if not query:
             await update.inline_query.answer([], cache_time=1)
@@ -519,338 +395,416 @@ class BotHandlers:
 
         results = self.db.search_courses(query, limit=20)
         inline_results = []
-
         for course in results:
             desc = f"{course.get('category') or 'General'} | {course.get('instructor') or 'Unknown'}"
-            message_text = (
-                f"📚 <b>{course['title']}</b>\n"
-                f"👨‍🏫 {course.get('instructor') or 'Unknown'}\n"
-                f"🗂 {course.get('category') or 'General'}"
-            )
-
             inline_results.append(
                 InlineQueryResultArticle(
-                    id=str(course["id"]),
-                    title=course["title"],
+                    id=str(course['id']),
+                    title=course['title'],
                     description=desc,
-                    input_message_content=InputTextMessageContent(
-                        message_text=message_text,
-                        parse_mode=ParseMode.HTML,
-                    ),
+                    input_message_content=InputTextMessageContent(message_text=format_inline_course_message(course), parse_mode=ParseMode.HTML),
                 )
             )
-
         await update.inline_query.answer(inline_results, cache_time=1)
+
+    def _parse_admin_fields(self, text: str, command_name: str) -> dict[str, str]:
+        payload = text.replace(command_name, '', 1).strip()
+        fields: dict[str, str] = {}
+        for line in payload.split('\n'):
+            if ':' in line:
+                key, value = line.split(':', 1)
+                fields[key.strip().lower()] = value.strip()
+        return fields
 
     async def addcourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         user = update.effective_user
         if not user or not is_admin(user.id):
             if update.message:
-                await update.message.reply_text("❌ Admin only command.")
+                await update.message.reply_text('❌ Admin only command.')
             return
-
         if not update.message or not update.message.text:
             return
 
-        text = update.message.text.replace("/addcourse", "", 1).strip()
-        fields = {}
-
-        for line in text.split("\n"):
-            if ":" in line:
-                key, value = line.split(":", 1)
-                fields[key.strip().lower()] = value.strip()
-
-        required = ["title", "instructor", "category", "description"]
-
+        fields = self._parse_admin_fields(update.message.text, '/addcourse')
+        required = ['title', 'instructor', 'category', 'description']
         for r in required:
-            if r not in fields or not fields[r]:
-                await update.message.reply_text(f"❌ Missing field: {r}")
+            if not fields.get(r):
+                await update.message.reply_text(f'❌ Missing field: {r}')
                 return
 
-        keywords = [k.strip() for k in fields.get("keywords", "").split(",") if k.strip()]
-
-        course_id = self.db.add_course(
-            title=fields.get("title", ""),
-            instructor=fields.get("instructor", ""),
-            category=fields.get("category", ""),
-            description=fields.get("description", ""),
-            thumbnail=fields.get("thumbnail", ""),
-            download_url=fields.get("download", ""),
-            how_to_download_url=fields.get("howtodownload", ""),
-            demo_url=fields.get("demo", ""),
-            contact_url=fields.get("contact", ""),
-            premium_channel_link=fields.get("premiumlink", ""),
-            is_featured=fields.get("featured", "0") == "1",
-            is_paid=fields.get("paid", "0") == "1",
-            price=fields.get("price", ""),
+        keywords = [k.strip() for k in fields.get('keywords', '').split(',') if k.strip()]
+        course_id, created = self.db.add_course(
+            title=fields.get('title', ''),
+            instructor=fields.get('instructor', ''),
+            category=fields.get('category', ''),
+            description=fields.get('description', ''),
+            thumbnail=fields.get('thumbnail', ''),
+            download_url=fields.get('download', ''),
+            how_to_download_url=fields.get('howtodownload', ''),
+            demo_url=fields.get('demo', ''),
+            contact_url=fields.get('contact', ''),
+            premium_channel_link=fields.get('premiumlink', ''),
+            is_featured=fields.get('featured', '0').strip() == '1',
+            is_paid=fields.get('paid', '0').strip() == '1',
+            price=fields.get('price', ''),
             keywords=keywords,
         )
-
+        if not created:
+            await update.message.reply_text(f'⚠️ Duplicate course already exists. Existing Course ID: {course_id}')
+            return
         await update.message.reply_text(
-            f"✅ Course Added Successfully\n\n"
-            f"📚 Title: {fields.get('title')}\n"
-            f"🧑‍🏫 Instructor: {fields.get('instructor')}\n"
-            f"📁 Category: {fields.get('category')}\n"
-            f"🆔 Course ID: {course_id}\n\n"
-            f"Thumbnail add karne ke liye is message ke reply me photo bhejo."
+            f'✅ Course Added Successfully\n\n📚 Title: {fields.get("title")}\n🧑‍🏫 Instructor: {fields.get("instructor")}\n📁 Category: {fields.get("category")}\n🆔 Course ID: {course_id}\n\nThumbnail add karne ke liye is message ke reply me photo bhejo ya /setthumb {course_id} use karo.'
         )
+
+    async def updatecourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            if update.message:
+                await update.message.reply_text('❌ Admin only command.')
+            return
+        if not update.message or not update.message.text:
+            return
+
+        payload = update.message.text.replace('/updatecourse', '', 1).strip()
+        if not payload:
+            await update.message.reply_text('Usage:\n/updatecourse 12\ntitle: New Title\nprice: 499')
+            return
+
+        lines = [line for line in payload.split('\n') if line.strip()]
+        if not lines or not lines[0].strip().isdigit():
+            await update.message.reply_text('Usage:\n/updatecourse 12\ntitle: New Title\nprice: 499')
+            return
+
+        course_id = int(lines[0].strip())
+        course = self.db.get_course(course_id)
+        if not course:
+            await update.message.reply_text('❌ Course not found.')
+            return
+
+        fields: dict[str, str] = {}
+        for line in lines[1:]:
+            if ':' in line:
+                key, value = line.split(':', 1)
+                fields[key.strip().lower()] = value.strip()
+
+        mapped: dict[str, object] = {}
+        keymap = {
+            'title': 'title', 'instructor': 'instructor', 'category': 'category', 'description': 'description',
+            'thumbnail': 'thumbnail', 'download': 'download_url', 'howtodownload': 'how_to_download_url',
+            'demo': 'demo_url', 'contact': 'contact_url', 'premiumlink': 'premium_channel_link',
+            'price': 'price', 'active': 'is_active', 'featured': 'is_featured', 'paid': 'is_paid'
+        }
+        for k, v in fields.items():
+            if k == 'keywords':
+                continue
+            mapped_key = keymap.get(k)
+            if not mapped_key:
+                continue
+            if mapped_key in {'is_active', 'is_featured', 'is_paid'}:
+                mapped[mapped_key] = v.strip().lower() in ('1', 'true', 'yes', 'on')
+            else:
+                mapped[mapped_key] = v
+
+        keywords = None
+        if 'keywords' in fields:
+            keywords = [k.strip() for k in fields['keywords'].split(',') if k.strip()]
+
+        changed = self.db.update_course_fields(course_id, mapped, keywords)
+        if not changed:
+            await update.message.reply_text('❌ Koi valid field nahi mili.')
+            return
+        await update.message.reply_text(f'✅ Course updated successfully. Course ID: {course_id}')
 
     async def save_thumbnail(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         user = update.effective_user
         if not user or not is_admin(user.id):
             if update.message:
-                await update.message.reply_text("❌ Admin only command.")
+                await update.message.reply_text('❌ Admin only command.')
             return
-
         if not update.message or not update.message.photo:
-            if update.message:
-                await update.message.reply_text("❌ Please send a photo.")
             return
 
-        if not update.message.reply_to_message:
-            return
-
-        replied_text = update.message.reply_to_message.text or ""
-        course_id = None
-
-        for line in replied_text.split("\n"):
-            if "Course ID:" in line:
-                try:
-                    course_id = int(line.split("Course ID:")[1].strip())
-                except Exception:
-                    course_id = None
-                break
-            if "🆔 Course ID:" in line:
-                try:
-                    course_id = int(line.split("🆔 Course ID:")[1].strip())
-                except Exception:
-                    course_id = None
-                break
+        course_id = context.user_data.get('awaiting_thumbnail_course_id')
+        if not course_id and update.message.reply_to_message and update.message.reply_to_message.text:
+            replied_text = update.message.reply_to_message.text or ''
+            for line in replied_text.split('\n'):
+                if 'Course ID:' in line:
+                    try:
+                        course_id = int(line.split('Course ID:')[1].strip())
+                    except Exception:
+                        course_id = None
+                    break
+                if '🆔 Course ID:' in line:
+                    try:
+                        course_id = int(line.split('🆔 Course ID:')[1].strip())
+                    except Exception:
+                        course_id = None
+                    break
 
         if not course_id:
-            await update.message.reply_text("❌ Reply message se Course ID nahi mila.")
             return
-
         course = self.db.get_course(course_id)
         if not course:
-            await update.message.reply_text("❌ Course not found.")
+            await update.message.reply_text('❌ Course not found.')
             return
 
-        largest_photo = update.message.photo[-1]
-        file_id = largest_photo.file_id
-
+        file_id = update.message.photo[-1].file_id
         self.db.update_course_thumbnail(course_id, file_id)
+        context.user_data.pop('awaiting_thumbnail_course_id', None)
+        await update.message.reply_text(f'✅ Thumbnail saved successfully for course ID: {course_id}')
 
-        await update.message.reply_text(
-            f"✅ Thumbnail saved successfully for course ID: {course_id}"
-        )
+    async def setthumb(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            if update.message:
+                await update.message.reply_text('❌ Admin only command.')
+            return
+        if not update.message:
+            return
+        if not context.args or not context.args[0].isdigit():
+            await update.message.reply_text('Usage: /setthumb 12')
+            return
+        course_id = int(context.args[0])
+        course = self.db.get_course(course_id)
+        if not course:
+            await update.message.reply_text('❌ Course not found.')
+            return
+        context.user_data['awaiting_thumbnail_course_id'] = course_id
+        await update.message.reply_text(f'📸 Ab course ID {course_id} ke liye photo bhejo.')
 
     async def importcsv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         user = update.effective_user
         if not user or not is_admin(user.id):
             if update.message:
-                await update.message.reply_text("❌ Admin only command.")
+                await update.message.reply_text('❌ Admin only command.')
             return
-
         if not update.message:
             return
-
-        args = context.args
-        if not args:
-            await update.message.reply_text("Usage:\n/importcsv sample_courses.csv")
+        if not context.args:
+            await update.message.reply_text('Usage:\n/importcsv sample_courses.csv\nYa direct CSV file upload karo.')
             return
-
-        csv_path = " ".join(args).strip()
+        csv_path = ' '.join(context.args).strip()
         try:
-            count = import_courses_from_csv(self.db, csv_path)
-            await update.message.reply_text(f"✅ Imported {count} courses from CSV.")
+            imported, skipped = import_courses_from_csv(self.db, csv_path)
+            await update.message.reply_text(f'✅ CSV import complete. Imported: {imported} | Skipped duplicates: {skipped}')
         except Exception as e:
-            await update.message.reply_text(f"❌ CSV import failed:\n{e}")
+            await update.message.reply_text(f'❌ CSV import failed:\n{e}')
+
+    async def importcsv_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            return
+        if not update.message or not update.message.document:
+            return
+        doc = update.message.document
+        if not doc.file_name.lower().endswith('.csv'):
+            return
+        temp_path = Path('/tmp') / doc.file_name
+        tg_file = await context.bot.get_file(doc.file_id)
+        await tg_file.download_to_drive(custom_path=str(temp_path))
+        try:
+            imported, skipped = import_courses_from_csv(self.db, str(temp_path))
+            await update.message.reply_text(f'✅ CSV upload import complete. Imported: {imported} | Skipped duplicates: {skipped}')
+        except Exception as e:
+            await update.message.reply_text(f'❌ CSV upload import failed:\n{e}')
+        finally:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     async def deletecourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         user = update.effective_user
         if not user or not is_admin(user.id):
             if update.message:
-                await update.message.reply_text("❌ Admin only command.")
+                await update.message.reply_text('❌ Admin only command.')
             return
-
         if not update.message or not update.message.text:
             return
-
-        text = update.message.text.replace("/deletecourse", "", 1).strip()
+        text = update.message.text.replace('/deletecourse', '', 1).strip()
         if not text.isdigit():
-            await update.message.reply_text("Usage: /deletecourse 3")
+            await update.message.reply_text('Usage: /deletecourse 3')
             return
-
         course_id = int(text)
         self.db.soft_delete_course(course_id)
-        await update.message.reply_text("🗑 Deleted.")
+        await update.message.reply_text('🗑 Course soft deleted.')
+
+    async def restorecourse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            if update.message:
+                await update.message.reply_text('❌ Admin only command.')
+            return
+        if not update.message or not update.message.text:
+            return
+        text = update.message.text.replace('/restorecourse', '', 1).strip()
+        if not text.isdigit():
+            await update.message.reply_text('Usage: /restorecourse 3')
+            return
+        course_id = int(text)
+        self.db.restore_course(course_id)
+        await update.message.reply_text('♻️ Course restored successfully.')
 
     async def listcourses(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         user = update.effective_user
         if not user or not is_admin(user.id):
             if update.message:
-                await update.message.reply_text("❌ Admin only command.")
+                await update.message.reply_text('❌ Admin only command.')
             return
-
         if not update.message:
             return
-
         courses = self.db.list_courses(limit=100, active_only=False)
         if not courses:
-            await update.message.reply_text("No courses found.")
+            await update.message.reply_text('No courses found.')
             return
-
-        lines = ["📚 <b>Courses</b>"]
+        lines = ['📚 <b>Courses</b>']
         for c in courses:
-            lines.append(
-                f"{c['id']}. {c['title']} | Paid: {c['is_paid']} | Featured: {c['is_featured']} | Active: {c.get('is_active', True)}"
-            )
-
-        text = "\n".join(lines)
+            lines.append(f"{c['id']}. {escape_html(c['title'])} | Paid: {c['is_paid']} | Featured: {c['is_featured']} | Active: {c.get('is_active', True)}")
+        text = '\n'.join(lines)
         if len(text) > 3800:
-            text = text[:3800] + "\n..."
-
+            text = text[:3800] + '\n...'
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def feature(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         user = update.effective_user
         if not user or not is_admin(user.id):
             if update.message:
-                await update.message.reply_text("❌ Admin only command.")
+                await update.message.reply_text('❌ Admin only command.')
             return
-
         if not update.message or not update.message.text:
             return
-
-        text = update.message.text.replace("/feature", "", 1).strip()
+        text = update.message.text.replace('/feature', '', 1).strip()
         if not text.isdigit():
-            await update.message.reply_text("Usage: /feature 2")
+            await update.message.reply_text('Usage: /feature 2')
             return
-
         self.db.set_featured(int(text), True)
-        await update.message.reply_text("⭐ Featured enabled.")
+        await update.message.reply_text('⭐ Featured enabled.')
 
     async def unfeature(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         user = update.effective_user
         if not user or not is_admin(user.id):
             if update.message:
-                await update.message.reply_text("❌ Admin only command.")
+                await update.message.reply_text('❌ Admin only command.')
             return
-
         if not update.message or not update.message.text:
             return
-
-        text = update.message.text.replace("/unfeature", "", 1).strip()
+        text = update.message.text.replace('/unfeature', '', 1).strip()
         if not text.isdigit():
-            await update.message.reply_text("Usage: /unfeature 2")
+            await update.message.reply_text('Usage: /unfeature 2')
             return
-
         self.db.set_featured(int(text), False)
-        await update.message.reply_text("✅ Featured removed.")
+        await update.message.reply_text('✅ Featured removed.')
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         user = update.effective_user
         if not user or not is_admin(user.id):
             if update.message:
-                await update.message.reply_text("❌ Admin only command.")
+                await update.message.reply_text('❌ Admin only command.')
             return
-
         if not update.message:
             return
-
         s = self.db.get_stats()
         lines = [
-            "📊 <b>Analytics Dashboard</b>",
+            '📊 <b>Analytics Dashboard</b>',
             f"Total Courses: {s['total_courses']}",
             f"Paid Courses: {s['total_paid_courses']}",
             f"Total Searches: {s['total_searches']}",
             f"Total Users: {s['total_users']}",
             f"24h Active Users: {s['active_24h']}",
             f"7d Active Users: {s['active_7d']}",
-            "",
-            "🔥 Top Queries:",
+            f"Pending Purchases: {s['pending_purchases']}",
+            '',
+            '📁 Top Categories:',
         ]
-
-        for row in s["popular_queries"]:
+        for row in s['top_categories']:
+            lines.append(f"• {row['category']} — {row['c']}")
+        lines.append('')
+        lines.append('🔥 Top Queries:')
+        for row in s['popular_queries']:
             lines.append(f"• {row['query']} — {row['c']}")
-
-        lines.append("")
-        lines.append("🚫 Zero Result Queries:")
-        for row in s["zero_results"]:
+        lines.append('')
+        lines.append('🚫 Zero Result Queries:')
+        for row in s['zero_results']:
             lines.append(f"• {row['query']} — {row['c']}")
-
-        lines.append("")
-        lines.append("📈 Top Clicked Courses:")
-        for row in s["top_clicked"]:
+        lines.append('')
+        lines.append('📈 Top Clicked Courses:')
+        for row in s['top_clicked']:
             lines.append(f"• {row['title']} — {row['ccount']}")
-
-        text = "\n".join(lines)
+        text = '\n'.join(lines)
         if len(text) > 3800:
-            text = text[:3800] + "\n..."
+            text = text[:3800] + '\n...'
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
+    async def pendingpayments(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            if update.message:
+                await update.message.reply_text('❌ Admin only command.')
+            return
+        if not update.message:
+            return
+        rows = self.db.get_pending_purchases(limit=25)
+        if not rows:
+            await update.message.reply_text('✅ No pending payment requests.')
+            return
+        lines = ['🧾 <b>Pending Payment Requests</b>']
+        for row in rows:
+            uname = f"@{row['username']}" if row.get('username') else '-'
+            lines.append(
+                f"\nUser ID: <code>{row['user_id']}</code>\nUsername: {uname}\nCourse ID: {row['course_id']}\nCourse: {escape_html(row['course_title'])}\nGrant: <code>/grant {row['user_id']} {row['course_id']}</code>"
+            )
+        text = '\n'.join(lines)
+        if len(text) > 3800:
+            text = text[:3800] + '\n...'
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def grant(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
-
         user = update.effective_user
         if not user or not is_admin(user.id):
             if update.message:
-                await update.message.reply_text("❌ Admin only command.")
+                await update.message.reply_text('❌ Admin only command.')
             return
-
         if not update.message:
             return
-
         args = context.args
         if len(args) < 2:
-            await update.message.reply_text("Usage: /grant user_id course_id")
+            await update.message.reply_text('Usage: /grant user_id course_id')
             return
-
         try:
             target_user_id = int(args[0])
             course_id = int(args[1])
         except ValueError:
-            await update.message.reply_text("❌ Invalid user_id or course_id.")
+            await update.message.reply_text('❌ Invalid user_id or course_id.')
             return
-
         course = self.db.get_course(course_id)
         if not course:
-            await update.message.reply_text("Course not found.")
+            await update.message.reply_text('Course not found.')
             return
 
         self.db.approve_purchase(target_user_id, course_id, user.id)
-
-        premium_link = course.get("premium_channel_link") or PREMIUM_CHANNEL_LINK
+        premium_link = course.get('premium_channel_link') or PREMIUM_CHANNEL_LINK
         if premium_link:
             try:
                 await context.bot.send_message(
                     chat_id=target_user_id,
-                    text=(
-                        f"🎉 Aapka premium access approve ho gaya hai.\n\n"
-                        f"Course: {course['title']}\n"
-                        f"Join here: {premium_link}"
-                    ),
+                    text=f'🎉 Aapka premium access approve ho gaya hai.\n\nCourse: {course["title"]}\nJoin here: {premium_link}',
                 )
-                await update.message.reply_text("✅ Access granted and user notified.")
+                await update.message.reply_text('✅ Access granted and user notified.')
             except Exception as e:
-                await update.message.reply_text(f"Approved but DM nahi gaya: {e}")
+                await update.message.reply_text(f'Approved but DM nahi gaya: {e}')
         else:
-            await update.message.reply_text("Approved, but premium link not configured.")
+            await update.message.reply_text('Approved, but premium link not configured.')
