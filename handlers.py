@@ -92,110 +92,61 @@ class BotHandlers:
             await self._reply_user_scoped(update, get_locked_welcome_text(first_name), parse_mode=ParseMode.HTML, reply_markup=locked_access_keyboard())
 
     def _help_text(self, admin: bool) -> str:
-        text = (
-            '📖 <b>Course Search Bot Help</b>
+        text = """📖 <b>Course Search Bot Help</b>
 
-'
-            '👤 <b>User Commands</b>
-'
-            '• /start - bot start karo
-'
-            '• /help - help menu kholo
-'
-            '• /search &lt;keyword&gt; - course search karo
-'
-            '• /categories - category wise browse karo
-'
-            '• /featured - featured courses dekho
-'
-            '• /new - recently added courses dekho
-'
-            '• /trending - trending courses dekho
-'
-            '• /saved - saved courses dekho
-'
-            '• /request &lt;course name&gt; - missing course request bhejo
+👤 <b>User Commands</b>
+• /start - bot start karo
+• /help - help menu kholo
+• /search &lt;keyword&gt; - course search karo
+• /categories - category wise browse karo
+• /featured - featured courses dekho
+• /new - recently added courses dekho
+• /trending - trending courses dekho
+• /saved - saved courses dekho
+• /request &lt;course name&gt; - missing course request bhejo
 
-'
-            '🔎 <b>Search Kaise Kare</b>
-'
-            '• /search python
-'
-            '• /search web development
-'
-            '• Direct text bhi bhej sakte ho: python, harkirat, dsa
+🔎 <b>Search Kaise Kare</b>
+• /search python
+• /search web development
+• Direct text bhi bhej sakte ho: python, harkirat, dsa
 
-'
-            '📌 <b>Notes</b>
-'
-            '• Typo hone par bot suggestions dikhayega
-'
-            '• Required channels joined hone par direct access mil jayega
-'
-            '• Verify button membership ko recheck karta hai
+📌 <b>Notes</b>
+• Typo hone par bot suggestions dikhayega
+• Required channels joined hone par direct access mil jayega
+• Verify button membership ko recheck karta hai
 
-'
-            '📢 <b>Official Links</b>
-'
-            '• Telegram: https://t.me/Code_Devil
-'
-            '• Telegram: https://t.me/Devil_Developee
-'
-            '• WhatsApp: https://whatsapp.com/channel/0029VaacxeOKWEKsD2KdqR0U
-'
-            '• YouTube: https://www.youtube.com/@Devil_Coder
-'
-            '• Owner: https://t.me/code_devil24'
-        )
+📢 <b>Official Links</b>
+• Telegram: https://t.me/Code_Devil
+• Telegram: https://t.me/Devil_Developee
+• WhatsApp: https://whatsapp.com/channel/0029VaacxeOKWEKsD2KdqR0U
+• YouTube: https://www.youtube.com/@Devil_Coder
+• Owner: https://t.me/code_devil24"""
         if admin:
-            text += (
-                '
+            text += """
 
 🛠 <b>Admin Only Commands</b>
-'
-                '• /admin - quick admin panel
-'
-                '• /addcourse
-'
-                '• /updatecourse
-'
-                '• /deletecourse 12
-'
-                '• /restorecourse 12
-'
-                '• /setthumb 12
-'
-                '• /importcsv sample_courses.csv
-'
-                '• CSV file upload bhi supported hai
-'
-                '• /listcourses
-'
-                '• /feature 12
-'
-                '• /unfeature 12
-'
-                '• /stats
-'
-                '• /pendingpayments
-'
-                '• /grant user_id course_id
-'
-                '• /requests
-'
-                '• /requestdone request_id
-'
-                '• /broadcast your message
-'
-                '• /maintenance on reason
-'
-                '• /maintenance off
+• /admin - quick admin panel
+• /addcourse
+• /updatecourse
+• /deletecourse 12
+• /restorecourse 12
+• /setthumb 12
+• /importcsv sample_courses.csv
+• CSV file upload bhi supported hai
+• /listcourses
+• /feature 12
+• /unfeature 12
+• /stats
+• /pendingpayments
+• /grant user_id course_id
+• /requests
+• /requestdone request_id
+• /broadcast your message
+• /maintenance on reason
+• /maintenance off
 
-'
-                '🔐 <b>Important</b>
-'
-                'Ye commands sirf admins ke liye visible aur usable hain.'
-            )
+🔐 <b>Important</b>
+Ye commands sirf admins ke liye visible aur usable hain."""
         return text
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
