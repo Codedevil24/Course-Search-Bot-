@@ -62,6 +62,15 @@ class BotHandlers:
             return False
         joined = await is_user_joined_required_channels(context.bot, user.id)
         if joined:
+            if not is_admin(user.id):
+                maintenance = self.db.get_maintenance_status()
+                if maintenance.get('enabled'):
+                    text = f"🛠 <b>Maintenance Mode</b>\n\n{escape_html(maintenance.get('message') or 'Bot is under maintenance. Please try again later.')}"
+                    if update.message:
+                        await self._reply_user_scoped(update, text, parse_mode=ParseMode.HTML)
+                    elif update.callback_query and update.callback_query.message:
+                        await update.callback_query.message.reply_text(text, parse_mode=ParseMode.HTML)
+                    return False
             return True
 
         text = get_locked_reply_text()
@@ -148,6 +157,114 @@ class BotHandlers:
         if not await self.ensure_access(update, context):
             return
         await self.send_featured_page(update.message.reply_text, page=0)
+
+
+    async def request_course(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not update.message or not user:
+            return
+        if not await self.ensure_access(update, context):
+            return
+        request_text = ' '.join(context.args).strip()
+        if not request_text:
+            await self._reply_user_scoped(update, 'Usage:\n/request course name')
+            return
+        request_id = self.db.add_course_request(user.id, user.username or '', request_text)
+        await self._reply_user_scoped(update, f'✅ Request saved successfully.\nRequest ID: {request_id}\n\nCourse request: {request_text}')
+        for admin_id in sorted(ADMIN_IDS):
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=(
+                        '📥 New course request\n\n'
+                        f'ID: <code>{request_id}</code>\n'
+                        f'User ID: <code>{user.id}</code>\n'
+                        f'Username: @{escape_html(user.username) if user.username else "-"}\n'
+                        f'Request: {escape_html(request_text)}\n\n'
+                        f'Done: <code>/requestdone {request_id}</code>'
+                    ),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                logger.exception('Failed to notify admin %s for request', admin_id)
+
+    async def saved_courses(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not update.message or not user:
+            return
+        if not await self.ensure_access(update, context):
+            return
+        total = self.db.count_saved_courses(user.id)
+        results = self.db.get_saved_courses(user.id, limit=PAGE_SIZE, offset=0)
+        if not results:
+            await self._reply_user_scoped(update, '⭐ Aapne abhi tak koi course save nahi kiya.')
+            return
+        await self._reply_user_scoped(
+            update,
+            f'⭐ <b>Saved Courses</b>\nTotal: {total}',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'saved', str(user.id), 0, total),
+        )
+
+    async def new_courses(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        if not update.message:
+            return
+        if not await self.ensure_access(update, context):
+            return
+        total = self.db.count_recent_courses()
+        results = self.db.get_recent_courses(limit=PAGE_SIZE, offset=0)
+        if not results:
+            await self._reply_user_scoped(update, '❌ No courses found.')
+            return
+        await self._reply_user_scoped(
+            update,
+            f'🆕 <b>Recently Added Courses</b>\nTotal: {total}',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'recent', 'all', 0, total),
+        )
+
+    async def trending_courses(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        if not update.message:
+            return
+        if not await self.ensure_access(update, context):
+            return
+        total = self.db.count_trending_courses()
+        results = self.db.get_trending_courses(limit=PAGE_SIZE, offset=0)
+        if not results:
+            await self._reply_user_scoped(update, '❌ No trending courses found.')
+            return
+        await self._reply_user_scoped(
+            update,
+            f'🔥 <b>Trending Courses</b>\nTotal: {total}',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'trending', 'all', 0, total),
+        )
+
+    async def admin_panel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            if update.message:
+                await update.message.reply_text('❌ Admin only command.')
+            return
+        if not update.message:
+            return
+        await update.message.reply_text(
+            '🛠 <b>Admin Panel</b>\n\n'
+            'Core:\n'
+            '• /addcourse\n• /updatecourse\n• /deletecourse 12\n• /restorecourse 12\n• /setthumb 12\n• /importcsv\n\n'
+            'Management:\n'
+            '• /listcourses\n• /feature 12\n• /unfeature 12\n• /stats\n\n'
+            'Requests & Broadcast:\n'
+            '• /requests\n• /requestdone 4\n• /broadcast text\n• /maintenance on reason\n• /maintenance off\n\n'
+            'Payments:\n'
+            '• /pendingpayments\n• /grant user_id course_id',
+            parse_mode=ParseMode.HTML,
+        )
 
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
@@ -267,6 +384,42 @@ class BotHandlers:
             f'⭐ <b>Featured Courses</b>\nTotal: {total}',
             parse_mode=ParseMode.HTML,
             reply_markup=search_results_keyboard(results, 'featured', 'all', page, total),
+        )
+
+    async def send_saved_page(self, query, user_id: int, page: int):
+        total = self.db.count_saved_courses(user_id)
+        results = self.db.get_saved_courses(user_id, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        if not results:
+            await query.message.reply_text('⭐ Saved list empty hai.')
+            return
+        await query.edit_message_text(
+            f'⭐ <b>Saved Courses</b>\nTotal: {total}',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'saved', str(user_id), page, total),
+        )
+
+    async def send_recent_page(self, query, page: int):
+        total = self.db.count_recent_courses()
+        results = self.db.get_recent_courses(limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        if not results:
+            await query.message.reply_text('❌ No courses found.')
+            return
+        await query.edit_message_text(
+            f'🆕 <b>Recently Added Courses</b>\nTotal: {total}',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'recent', 'all', page, total),
+        )
+
+    async def send_trending_page(self, query, page: int):
+        total = self.db.count_trending_courses()
+        results = self.db.get_trending_courses(limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        if not results:
+            await query.message.reply_text('❌ No trending courses found.')
+            return
+        await query.edit_message_text(
+            f'🔥 <b>Trending Courses</b>\nTotal: {total}',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'trending', 'all', page, total),
         )
 
     async def notify_admins_pending_purchase(self, context: ContextTypes.DEFAULT_TYPE, course: dict, user):
@@ -412,6 +565,25 @@ class BotHandlers:
                 else:
                     await query.message.reply_text('✅ Payment request create ho gayi hai. Admin verify karke access denge.')
                     await self.notify_admins_pending_purchase(context, course, user)
+                return
+
+            if data.startswith('save::'):
+                if not await self.ensure_access(update, context):
+                    return
+                if not user:
+                    await query.message.reply_text('❌ User not found.')
+                    return
+                course_id = int(data.split('::', 1)[1])
+                course = self.db.get_course(course_id)
+                if not course:
+                    await query.message.reply_text('❌ Course not found.')
+                    return
+                created = self.db.save_course(user.id, course_id)
+                if created:
+                    self.db.log_click(user.id, user.username or '', course_id, 'save_course')
+                    await query.message.reply_text('⭐ Course saved successfully. /saved use karke list dekho.')
+                else:
+                    await query.message.reply_text('⭐ Ye course pehle se saved hai. /saved use karo.')
                 return
 
             if data == 'featured::all::0' or data == 'featured::all':
@@ -760,6 +932,97 @@ class BotHandlers:
             return
         self.db.set_featured(int(text), False)
         await update.message.reply_text('✅ Featured removed.')
+
+
+    async def requests_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            if update.message:
+                await update.message.reply_text('❌ Admin only command.')
+            return
+        if not update.message:
+            return
+        rows = self.db.get_pending_requests(limit=25)
+        if not rows:
+            await update.message.reply_text('✅ No pending course requests.')
+            return
+        lines = ['📥 <b>Pending Course Requests</b>']
+        for row in rows:
+            uname = f"@{row['username']}" if row.get('username') else '-'
+            lines.append(f"\nID: <code>{row['id']}</code>\nUser ID: <code>{row['user_id']}</code>\nUsername: {uname}\nRequest: {escape_html(row['request_text'])}\nDone: <code>/requestdone {row['id']}</code>")
+        text = '\n'.join(lines)
+        if len(text) > 3800:
+            text = text[:3800] + '\n...'
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+    async def requestdone_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            if update.message:
+                await update.message.reply_text('❌ Admin only command.')
+            return
+        if not update.message:
+            return
+        if not context.args or not context.args[0].isdigit():
+            await update.message.reply_text('Usage: /requestdone request_id')
+            return
+        request_id = int(context.args[0])
+        changed = self.db.complete_request(request_id, user.id)
+        if not changed:
+            await update.message.reply_text('❌ Pending request not found.')
+            return
+        await update.message.reply_text('✅ Request marked as completed.')
+
+    async def broadcast_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            if update.message:
+                await update.message.reply_text('❌ Admin only command.')
+            return
+        if not update.message or not update.message.text:
+            return
+        payload = update.message.text.replace('/broadcast', '', 1).strip()
+        if not payload:
+            await update.message.reply_text('Usage: /broadcast your message')
+            return
+        user_ids = self.db.get_all_user_ids()
+        sent = 0
+        failed = 0
+        for uid in user_ids:
+            try:
+                await context.bot.send_message(chat_id=uid, text=payload)
+                sent += 1
+            except Exception:
+                failed += 1
+        await update.message.reply_text(f'📢 Broadcast complete. Sent: {sent} | Failed: {failed}')
+
+    async def maintenance_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        user = update.effective_user
+        if not user or not is_admin(user.id):
+            if update.message:
+                await update.message.reply_text('❌ Admin only command.')
+            return
+        if not update.message:
+            return
+        if not context.args:
+            status = self.db.get_maintenance_status()
+            await update.message.reply_text(f"Maintenance: {'ON' if status['enabled'] else 'OFF'}\\nMessage: {status['message']}")
+            return
+        action = context.args[0].lower()
+        if action == 'off':
+            self.db.set_maintenance(False)
+            await update.message.reply_text('✅ Maintenance mode disabled.')
+            return
+        if action == 'on':
+            message = ' '.join(context.args[1:]).strip() or 'Bot upgrade chal raha hai. Thodi der baad try karo.'
+            self.db.set_maintenance(True, message)
+            await update.message.reply_text('✅ Maintenance mode enabled.')
+            return
+        await update.message.reply_text('Usage:\n/maintenance on reason\n/maintenance off')
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)

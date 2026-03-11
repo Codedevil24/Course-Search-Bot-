@@ -103,10 +103,46 @@ class Database:
                     );
                     '''
                 )
+                cur.execute(
+                    '''
+                    CREATE TABLE IF NOT EXISTS course_requests (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        username TEXT,
+                        request_text TEXT NOT NULL,
+                        status TEXT DEFAULT 'pending',
+                        completed_by BIGINT,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        completed_at TIMESTAMP
+                    );
+                    '''
+                )
+                cur.execute(
+                    '''
+                    CREATE TABLE IF NOT EXISTS saved_courses (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        course_id BIGINT REFERENCES courses(id) ON DELETE CASCADE,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(user_id, course_id)
+                    );
+                    '''
+                )
+                cur.execute(
+                    '''
+                    CREATE TABLE IF NOT EXISTS bot_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        updated_at TIMESTAMP DEFAULT NOW()
+                    );
+                    '''
+                )
                 cur.execute('CREATE INDEX IF NOT EXISTS idx_courses_title ON courses USING btree (title);')
                 cur.execute('CREATE INDEX IF NOT EXISTS idx_courses_category ON courses USING btree (category);')
                 cur.execute('CREATE INDEX IF NOT EXISTS idx_keywords_keyword ON keywords USING btree (keyword);')
                 cur.execute('CREATE INDEX IF NOT EXISTS idx_searches_query ON searches USING btree (query);')
+                cur.execute('CREATE INDEX IF NOT EXISTS idx_course_requests_status ON course_requests USING btree (status);')
+                cur.execute('CREATE INDEX IF NOT EXISTS idx_saved_courses_user_id ON saved_courses USING btree (user_id);')
             conn.commit()
 
     def upsert_user(self, user_id: int, username: str = '', first_name: str = '', last_name: str = ''):
@@ -711,6 +747,195 @@ class Database:
                     params + [limit, offset],
                 )
                 return [dict(r) for r in cur.fetchall()]
+
+
+    def set_setting(self, key: str, value: str):
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    INSERT INTO bot_settings (key, value, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (key)
+                    DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                    ''',
+                    (key, value),
+                )
+            conn.commit()
+
+    def get_setting(self, key: str, default: str = '') -> str:
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT value FROM bot_settings WHERE key = %s', (key,))
+                row = cur.fetchone()
+                return row['value'] if row and row.get('value') is not None else default
+
+    def get_maintenance_status(self) -> dict[str, Any]:
+        enabled = self.get_setting('maintenance_enabled', '0') == '1'
+        message = self.get_setting('maintenance_message', 'Bot is under maintenance. Please try again later.')
+        return {'enabled': enabled, 'message': message}
+
+    def set_maintenance(self, enabled: bool, message: str = ''):
+        self.set_setting('maintenance_enabled', '1' if enabled else '0')
+        if message:
+            self.set_setting('maintenance_message', message)
+
+    def add_course_request(self, user_id: int, username: str, request_text: str) -> int:
+        normalized = normalize_text(request_text)
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    INSERT INTO course_requests (user_id, username, request_text, status)
+                    VALUES (%s, %s, %s, 'pending')
+                    RETURNING id
+                    ''',
+                    (user_id, username, normalized),
+                )
+                request_id = cur.fetchone()['id']
+            conn.commit()
+        return request_id
+
+    def get_pending_requests(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    SELECT *
+                    FROM course_requests
+                    WHERE status = 'pending'
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    ''',
+                    (limit,),
+                )
+                return [dict(r) for r in cur.fetchall()]
+
+    def complete_request(self, request_id: int, admin_id: int) -> bool:
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    UPDATE course_requests
+                    SET status = 'done', completed_by = %s, completed_at = NOW()
+                    WHERE id = %s AND status = 'pending'
+                    RETURNING id
+                    ''',
+                    (admin_id, request_id),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return bool(row)
+
+    def save_course(self, user_id: int, course_id: int) -> bool:
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    INSERT INTO saved_courses (user_id, course_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id, course_id) DO NOTHING
+                    RETURNING id
+                    ''',
+                    (user_id, course_id),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return bool(row)
+
+    def unsave_course(self, user_id: int, course_id: int) -> bool:
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM saved_courses WHERE user_id = %s AND course_id = %s RETURNING id', (user_id, course_id))
+                row = cur.fetchone()
+            conn.commit()
+        return bool(row)
+
+    def is_course_saved(self, user_id: int, course_id: int) -> bool:
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT 1 AS x FROM saved_courses WHERE user_id = %s AND course_id = %s LIMIT 1', (user_id, course_id))
+                return bool(cur.fetchone())
+
+    def get_saved_courses(self, user_id: int, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+        limit = limit or PAGE_SIZE
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    SELECT c.*
+                    FROM saved_courses s
+                    JOIN courses c ON c.id = s.course_id
+                    WHERE s.user_id = %s AND c.is_active = TRUE
+                    ORDER BY s.created_at DESC
+                    LIMIT %s OFFSET %s
+                    ''',
+                    (user_id, limit, offset),
+                )
+                return [dict(r) for r in cur.fetchall()]
+
+    def count_saved_courses(self, user_id: int) -> int:
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    SELECT COUNT(*) AS c
+                    FROM saved_courses s
+                    JOIN courses c ON c.id = s.course_id
+                    WHERE s.user_id = %s AND c.is_active = TRUE
+                    ''',
+                    (user_id,),
+                )
+                return cur.fetchone()['c']
+
+    def get_recent_courses(self, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+        limit = limit or PAGE_SIZE
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    SELECT *
+                    FROM courses
+                    WHERE is_active = TRUE
+                    ORDER BY created_at DESC, updated_at DESC
+                    LIMIT %s OFFSET %s
+                    ''',
+                    (limit, offset),
+                )
+                return [dict(r) for r in cur.fetchall()]
+
+    def count_recent_courses(self) -> int:
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT COUNT(*) AS c FROM courses WHERE is_active = TRUE')
+                return cur.fetchone()['c']
+
+    def get_trending_courses(self, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+        limit = limit or PAGE_SIZE
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    SELECT c.*, COUNT(cc.id) AS click_count
+                    FROM courses c
+                    LEFT JOIN course_clicks cc ON cc.course_id = c.id
+                    WHERE c.is_active = TRUE
+                    GROUP BY c.id
+                    ORDER BY click_count DESC, c.is_featured DESC, c.updated_at DESC, c.created_at DESC
+                    LIMIT %s OFFSET %s
+                    ''',
+                    (limit, offset),
+                )
+                return [dict(r) for r in cur.fetchall()]
+
+    def count_trending_courses(self) -> int:
+        return self.count_recent_courses()
+
+    def get_all_user_ids(self) -> list[int]:
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT user_id FROM users ORDER BY user_id ASC')
+                return [int(r['user_id']) for r in cur.fetchall()]
 
 
 db = Database()

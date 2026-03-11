@@ -47,6 +47,8 @@ def course_keyboard(course: dict) -> InlineKeyboardMarkup:
         if course.get('demo_url'):
             rows.append([InlineKeyboardButton('🎬 Demo', url=course['demo_url'])])
 
+    rows.append([InlineKeyboardButton('⭐ Save Course', callback_data=f'save::{course["id"]}')])
+
     if MAIN_CHANNEL_URL:
         rows.append([InlineKeyboardButton('📢 Join Our Main Channel', url=MAIN_CHANNEL_URL)])
     if PLAYLISTS_URL:
