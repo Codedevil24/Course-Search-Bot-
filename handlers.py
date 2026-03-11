@@ -93,35 +93,108 @@ class BotHandlers:
 
     def _help_text(self, admin: bool) -> str:
         text = (
-            '📖 <b>Help</b>\n\n'
-            'User Commands:\n'
-            '• /start\n'
-            '• /help\n'
-            '• /search &lt;keyword&gt;\n'
-            '• /categories\n'
-            '• /featured\n'
-            '• normal text search bhi kaam karega\n\n'
-            'Examples:\n'
-            '• /search python\n'
-            '• harkirat\n'
-            '• dsa'
+            '📖 <b>Course Search Bot Help</b>
+
+'
+            '👤 <b>User Commands</b>
+'
+            '• /start - bot start karo
+'
+            '• /help - help menu kholo
+'
+            '• /search &lt;keyword&gt; - course search karo
+'
+            '• /categories - category wise browse karo
+'
+            '• /featured - featured courses dekho
+'
+            '• /new - recently added courses dekho
+'
+            '• /trending - trending courses dekho
+'
+            '• /saved - saved courses dekho
+'
+            '• /request &lt;course name&gt; - missing course request bhejo
+
+'
+            '🔎 <b>Search Kaise Kare</b>
+'
+            '• /search python
+'
+            '• /search web development
+'
+            '• Direct text bhi bhej sakte ho: python, harkirat, dsa
+
+'
+            '📌 <b>Notes</b>
+'
+            '• Typo hone par bot suggestions dikhayega
+'
+            '• Required channels joined hone par direct access mil jayega
+'
+            '• Verify button membership ko recheck karta hai
+
+'
+            '📢 <b>Official Links</b>
+'
+            '• Telegram: https://t.me/Code_Devil
+'
+            '• Telegram: https://t.me/Devil_Developee
+'
+            '• WhatsApp: https://whatsapp.com/channel/0029VaacxeOKWEKsD2KdqR0U
+'
+            '• YouTube: https://www.youtube.com/@Devil_Coder
+'
+            '• Owner: https://t.me/code_devil24'
         )
         if admin:
             text += (
-                '\n\n🛠 <b>Admin Only Commands</b>\n'
-                '• /addcourse\n'
-                '• /updatecourse\n'
-                '• /deletecourse 12\n'
-                '• /restorecourse 12\n'
-                '• /setthumb 12\n'
-                '• /importcsv sample_courses.csv\n'
-                '• CSV file upload bhi supported hai\n'
-                '• /listcourses\n'
-                '• /feature 12\n'
-                '• /unfeature 12\n'
-                '• /stats\n'
-                '• /pendingpayments\n'
-                '• /grant user_id course_id'
+                '
+
+🛠 <b>Admin Only Commands</b>
+'
+                '• /admin - quick admin panel
+'
+                '• /addcourse
+'
+                '• /updatecourse
+'
+                '• /deletecourse 12
+'
+                '• /restorecourse 12
+'
+                '• /setthumb 12
+'
+                '• /importcsv sample_courses.csv
+'
+                '• CSV file upload bhi supported hai
+'
+                '• /listcourses
+'
+                '• /feature 12
+'
+                '• /unfeature 12
+'
+                '• /stats
+'
+                '• /pendingpayments
+'
+                '• /grant user_id course_id
+'
+                '• /requests
+'
+                '• /requestdone request_id
+'
+                '• /broadcast your message
+'
+                '• /maintenance on reason
+'
+                '• /maintenance off
+
+'
+                '🔐 <b>Important</b>
+'
+                'Ye commands sirf admins ke liye visible aur usable hain.'
             )
         return text
 
