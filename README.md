@@ -193,15 +193,21 @@ Command| Description
 Create ".env" file.
 
 Example:
-
+PORT=10000
+BOT_Name="Code Devil Course Link Bot"
 BOT_TOKEN=your_bot_token
-
+BOT_WELCOME_IMAGE=blob:https://web.telegram.org/54a2cef4-cf4a-4978-b869-95ce084b029c
 ADMIN_IDS=123456789
-
 SUPABASE_DB_URL=postgresql://user:password@host:port/db
-
+MAIN_CHANNEL_URL=https://t.me/Code_Devil
+PREMIUM_CHANNEL_LINK=https://t.me/xyzchannel
+PLAYLISTS_URL=https://t.me/addlist/wTBxgyESacMwMDA1
+PYTHON_VERSION=3.11.11
 FORCE_SUB_CHANNELS=@Code_Devil,@Devil_Developee
 FORCE_SUB_CHANNEL_URLS=https://t.me/Code_Devil,https://t.me/Devil_Developee
+SUPPORT_CONTACT_URL=https://t.me/B_C_Admin_Bot
+WHATSAPP_CHANNEL_URL=https://whatsapp.com/channel/0029VaacxeOKWEKsD2KdqR0U
+
 
 PAGE_SIZE=5
 
