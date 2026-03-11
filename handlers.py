@@ -98,6 +98,8 @@ class BotHandlers:
 • /start - bot start karo
 • /help - help menu kholo
 • /search &lt;keyword&gt; - course search karo
+• /instructor &lt;name&gt; - instructor ke courses dekho
+• /filter &lt;keyword/category&gt; - filtered results dekho
 • /categories - category wise browse karo
 • /featured - featured courses dekho
 • /new - recently added courses dekho
@@ -108,19 +110,14 @@ class BotHandlers:
 🔎 <b>Search Kaise Kare</b>
 • /search python
 • /search web development
+• /instructor harkirat
+• /filter web dev
 • Direct text bhi bhej sakte ho: python, harkirat, dsa
 
 📌 <b>Notes</b>
 • Typo hone par bot suggestions dikhayega
 • Required channels joined hone par direct access mil jayega
-• Verify button membership ko recheck karta hai
-
-📢 <b>Official Links</b>
-• Telegram: https://t.me/Code_Devil
-• Telegram: https://t.me/Devil_Developee
-• WhatsApp: https://whatsapp.com/channel/0029VaacxeOKWEKsD2KdqR0U
-• YouTube: https://www.youtube.com/@Devil_Coder
-• Owner: https://t.me/code_devil24"""
+• Verify button membership ko recheck karta hai"""
         if admin:
             text += """
 
@@ -280,7 +277,8 @@ Ye commands sirf admins ke liye visible aur usable hain."""
         await update.message.reply_text(
             '🛠 <b>Admin Panel</b>\n\n'
             'Core:\n'
-            '• /addcourse\n• /updatecourse\n• /deletecourse 12\n• /restorecourse 12\n• /setthumb 12\n• /importcsv\n\n'
+            '• /addcourse\n• /updatecourse\n• /deletecourse 12\n• /restorecourse 12\n• /setthumb 12\n• /importcsv\n'
+            '• /instructor harkirat\n• /filter web dev\n\n'
             'Management:\n'
             '• /listcourses\n• /feature 12\n• /unfeature 12\n• /stats\n\n'
             'Requests & Broadcast:\n'
@@ -289,6 +287,30 @@ Ye commands sirf admins ke liye visible aur usable hain."""
             '• /pendingpayments\n• /grant user_id course_id',
             parse_mode=ParseMode.HTML,
         )
+
+    async def instructor_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        if not update.message:
+            return
+        if not await self.ensure_access(update, context):
+            return
+        query = ' '.join(context.args).strip()
+        if not query:
+            await self._reply_user_scoped(update, 'Usage:\n/instructor harkirat')
+            return
+        await self.run_instructor_search(update, query, page=0)
+
+    async def filter_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self.track_user(update)
+        if not update.message:
+            return
+        if not await self.ensure_access(update, context):
+            return
+        query = ' '.join(context.args).strip()
+        if not query:
+            await self._reply_user_scoped(update, 'Usage:\n/filter web dev')
+            return
+        await self.run_filter_search(update, query, page=0)
 
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.track_user(update)
@@ -350,6 +372,78 @@ Ye commands sirf admins ke liye visible aur usable hain."""
 
         await self._reply_user_scoped(update, '❌ Koi course nahi mila.')
 
+
+    async def run_instructor_search(self, update: Update, instructor: str, page: int = 0):
+        message = update.message
+        if not message:
+            return
+        total = self.db.count_courses_by_instructor(instructor)
+        results = self.db.search_courses_by_instructor(instructor, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        user = update.effective_user
+        try:
+            self.db.log_search(user_id=user.id if user else None, username=user.username if user and user.username else '', query=f'instructor:{instructor}', matched_count=total)
+        except Exception:
+            logger.exception('Failed to log instructor search for query=%s', instructor)
+        if not results:
+            await self._reply_user_scoped(update, '❌ Is instructor ke naam se koi course nahi mila.')
+            return
+        if total == 1 and page == 0:
+            await self.send_course_card(message.reply_text, message.reply_photo, results[0])
+            return
+        await self._reply_user_scoped(
+            update,
+            f'👨‍🏫 <b>{escape_html(instructor)}</b> instructor ke {total} matching courses mile.',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'instructor', instructor, page, total),
+        )
+
+    async def run_filter_search(self, update: Update, keyword: str, page: int = 0):
+        message = update.message
+        if not message:
+            return
+        total = self.db.count_filtered_courses(keyword)
+        results = self.db.search_filtered_courses(keyword, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        user = update.effective_user
+        try:
+            self.db.log_search(user_id=user.id if user else None, username=user.username if user and user.username else '', query=f'filter:{keyword}', matched_count=total)
+        except Exception:
+            logger.exception('Failed to log filter search for query=%s', keyword)
+        if not results:
+            await self._reply_user_scoped(update, '❌ Is filter ke liye koi course nahi mila.')
+            return
+        if total == 1 and page == 0:
+            await self.send_course_card(message.reply_text, message.reply_photo, results[0])
+            return
+        await self._reply_user_scoped(
+            update,
+            f'🧩 <b>{escape_html(keyword)}</b> filter ke {total} matching courses mile.',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'filter', keyword, page, total),
+        )
+
+    async def send_instructor_page(self, query, instructor: str, page: int):
+        total = self.db.count_courses_by_instructor(instructor)
+        results = self.db.search_courses_by_instructor(instructor, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        if not results:
+            await query.message.reply_text('❌ Is instructor ke liye koi results nahi mile.')
+            return
+        await query.edit_message_text(
+            f'👨‍🏫 <b>{escape_html(instructor)}</b> instructor ke {total} matching courses mile.',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'instructor', instructor, page, total),
+        )
+
+    async def send_filter_page(self, query, keyword: str, page: int):
+        total = self.db.count_filtered_courses(keyword)
+        results = self.db.search_filtered_courses(keyword, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+        if not results:
+            await query.message.reply_text('❌ Is filter ke liye koi results nahi mile.')
+            return
+        await query.edit_message_text(
+            f'🧩 <b>{escape_html(keyword)}</b> filter ke {total} matching courses mile.',
+            parse_mode=ParseMode.HTML,
+            reply_markup=search_results_keyboard(results, 'filter', keyword, page, total),
+        )
 
     async def send_course_card(self, reply_text_fn, reply_photo_fn, course: dict):
         caption = format_course_caption(course)
@@ -516,6 +610,10 @@ Ye commands sirf admins ke liye visible aur usable hain."""
                 page = int(page_text)
                 if scope == 'search':
                     await self.send_search_page_callback(query, user, value, page)
+                elif scope == 'instructor':
+                    await self.send_instructor_page(query, value, page)
+                elif scope == 'filter':
+                    await self.send_filter_page(query, value, page)
                 elif scope == 'category':
                     await self.send_category_page(query, value, page)
                 elif scope == 'featured':

@@ -1,4 +1,4 @@
-🚀 Course Search Bot v3.2
+🚀 Course Search Bot v4.0
 
 By Code Devil
 
@@ -300,3 +300,8 @@ If you like this project:
 - Contribute improvements
 
 Happy Learning 🚀
+
+New in v4.0:
+- /instructor <name>
+- /filter <keyword/category>
+- clean help command without official links

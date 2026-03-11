@@ -770,6 +770,97 @@ class Database:
                 row = cur.fetchone()
                 return row['value'] if row and row.get('value') is not None else default
 
+
+    def search_courses_by_instructor(self, instructor: str, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+        instructor = normalize_text(instructor)
+        if not instructor:
+            return []
+        sql = '''
+            SELECT c.*
+            FROM courses c
+            WHERE c.is_active = TRUE
+              AND LOWER(COALESCE(c.instructor, '')) LIKE %s
+            ORDER BY c.updated_at DESC NULLS LAST, c.id DESC
+        '''
+        params: list[Any] = [f'%{instructor}%']
+        if limit is not None:
+            sql += ' LIMIT %s OFFSET %s'
+            params.extend([limit, offset])
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                return [dict(r) for r in cur.fetchall()]
+
+    def count_courses_by_instructor(self, instructor: str) -> int:
+        instructor = normalize_text(instructor)
+        if not instructor:
+            return 0
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    SELECT COUNT(*) AS c
+                    FROM courses c
+                    WHERE c.is_active = TRUE
+                      AND LOWER(COALESCE(c.instructor, '')) LIKE %s
+                    ''',
+                    (f'%{instructor}%',),
+                )
+                return cur.fetchone()['c']
+
+    def search_filtered_courses(self, keyword: str, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+        keyword = normalize_text(keyword)
+        if not keyword:
+            return []
+        like = f'%{keyword}%'
+        sql = '''
+            SELECT DISTINCT c.*
+            FROM courses c
+            LEFT JOIN keywords k ON k.course_id = c.id
+            WHERE c.is_active = TRUE
+              AND (
+                    LOWER(COALESCE(c.category, '')) LIKE %s
+                 OR LOWER(COALESCE(c.title, '')) LIKE %s
+                 OR LOWER(COALESCE(c.instructor, '')) LIKE %s
+                 OR LOWER(COALESCE(c.description, '')) LIKE %s
+                 OR LOWER(COALESCE(k.keyword, '')) LIKE %s
+              )
+            ORDER BY c.updated_at DESC NULLS LAST, c.id DESC
+        '''
+        params: list[Any] = [like, like, like, like, like]
+        if limit is not None:
+            sql += ' LIMIT %s OFFSET %s'
+            params.extend([limit, offset])
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                return [dict(r) for r in cur.fetchall()]
+
+    def count_filtered_courses(self, keyword: str) -> int:
+        keyword = normalize_text(keyword)
+        if not keyword:
+            return 0
+        like = f'%{keyword}%'
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''
+                    SELECT COUNT(DISTINCT c.id) AS c
+                    FROM courses c
+                    LEFT JOIN keywords k ON k.course_id = c.id
+                    WHERE c.is_active = TRUE
+                      AND (
+                            LOWER(COALESCE(c.category, '')) LIKE %s
+                         OR LOWER(COALESCE(c.title, '')) LIKE %s
+                         OR LOWER(COALESCE(c.instructor, '')) LIKE %s
+                         OR LOWER(COALESCE(c.description, '')) LIKE %s
+                         OR LOWER(COALESCE(k.keyword, '')) LIKE %s
+                      )
+                    ''',
+                    (like, like, like, like, like),
+                )
+                return cur.fetchone()['c']
+
     def get_maintenance_status(self) -> dict[str, Any]:
         enabled = self.get_setting('maintenance_enabled', '0') == '1'
         message = self.get_setting('maintenance_message', 'Bot is under maintenance. Please try again later.')

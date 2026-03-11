@@ -57,6 +57,8 @@ async def _run_bot():
     application.add_handler(CommandHandler('start', h.start))
     application.add_handler(CommandHandler('help', h.help_command))
     application.add_handler(CommandHandler('search', h.search_command))
+    application.add_handler(CommandHandler('instructor', h.instructor_command))
+    application.add_handler(CommandHandler('filter', h.filter_command))
     application.add_handler(CommandHandler('categories', h.categories))
     application.add_handler(CommandHandler('featured', h.featured))
     application.add_handler(CommandHandler('request', h.request_course))

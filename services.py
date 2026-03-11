@@ -34,3 +34,20 @@ class SearchService:
 
         suggestions = unique_keep_order(suggest_keyword(query, self.db.get_all_keywords()))[:10]
         return {'results': [], 'suggestions': suggestions, 'total': 0}
+
+
+    def search_by_instructor(self, instructor: str, limit: int, offset: int = 0) -> dict:
+        instructor = (instructor or '').strip()
+        if not instructor:
+            return {'results': [], 'total': 0}
+        total = self.db.count_courses_by_instructor(instructor)
+        results = self.db.search_courses_by_instructor(instructor, limit=limit, offset=offset)
+        return {'results': results, 'total': total}
+
+    def filter_results(self, keyword: str, limit: int, offset: int = 0) -> dict:
+        keyword = (keyword or '').strip()
+        if not keyword:
+            return {'results': [], 'total': 0}
+        total = self.db.count_filtered_courses(keyword)
+        results = self.db.search_filtered_courses(keyword, limit=limit, offset=offset)
+        return {'results': results, 'total': total}
