@@ -1,3 +1,4 @@
+import difflib
 from db import Database
 from utils import unique_keep_order, suggest_keyword
 
@@ -51,3 +52,12 @@ class SearchService:
         total = self.db.count_filtered_courses(keyword)
         results = self.db.search_filtered_courses(keyword, limit=limit, offset=offset)
         return {'results': results, 'total': total}
+
+
+# --- v4.5 typo suggestion ---
+def suggest_query(query, options):
+    try:
+        matches = difflib.get_close_matches(query, options, n=3, cutoff=0.6)
+        return matches
+    except Exception:
+        return []

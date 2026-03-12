@@ -1248,3 +1248,47 @@ Ye commands sirf admins ke liye visible aur usable hain."""
                 await update.message.reply_text(f'Approved but DM nahi gaya: {e}')
         else:
             await update.message.reply_text('Approved, but premium link not configured.')
+
+
+async def trending_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rows = self.db.get_trending_courses()
+    if not rows:
+        await update.message.reply_text("No trending data yet.")
+        return
+    text = "🔥 Trending Courses:\n"
+    for r in rows:
+        text += f"Course ID: {r['course_id']} (Clicks: {r['c']})\n"
+    await update.message.reply_text(text)
+
+async def broadcast_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    self.track_user(update)
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        return
+
+    msg = update.message
+    target = msg.reply_to_message
+
+    users = self.db.get_all_user_ids()
+    sent, failed = 0, 0
+
+    for uid in users:
+        try:
+            if target:
+                if target.text:
+                    await context.bot.send_message(uid, target.text)
+                elif target.photo:
+                    await context.bot.send_photo(uid, target.photo[-1].file_id, caption=target.caption or "")
+                elif target.video:
+                    await context.bot.send_video(uid, target.video.file_id, caption=target.caption or "")
+                elif target.document:
+                    await context.bot.send_document(uid, target.document.file_id, caption=target.caption or "")
+            else:
+                payload = msg.text.replace("/broadcast", "", 1).strip()
+                if payload:
+                    await context.bot.send_message(uid, payload)
+            sent += 1
+        except Exception:
+            failed += 1
+
+    await msg.reply_text(f"Broadcast done. Sent:{sent} Failed:{failed}")
