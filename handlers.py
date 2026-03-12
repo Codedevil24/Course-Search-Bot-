@@ -1104,21 +1104,78 @@ Ye commands sirf admins ke liye visible aur usable hain."""
             if update.message:
                 await update.message.reply_text('❌ Admin only command.')
             return
-        if not update.message or not update.message.text:
+        if not update.message:
             return
-        payload = update.message.text.replace('/broadcast', '', 1).strip()
-        if not payload:
-            await update.message.reply_text('Usage: /broadcast your message')
+
+        source_message = update.message.reply_to_message
+        direct_payload = ''
+        if update.message.text:
+            direct_payload = update.message.text.replace('/broadcast', '', 1).strip()
+
+        if not source_message and not direct_payload:
+            await update.message.reply_text(
+                'Usage:\\n'
+                '1) Reply to a text/photo/video/document and send /broadcast\\n'
+                '2) Or use /broadcast your message'
+            )
             return
+
         user_ids = self.db.get_all_user_ids()
         sent = 0
         failed = 0
+
         for uid in user_ids:
             try:
-                await context.bot.send_message(chat_id=uid, text=payload)
+                if source_message:
+                    if source_message.photo:
+                        await context.bot.send_photo(
+                            chat_id=uid,
+                            photo=source_message.photo[-1].file_id,
+                            caption=source_message.caption or ''
+                        )
+                    elif source_message.video:
+                        await context.bot.send_video(
+                            chat_id=uid,
+                            video=source_message.video.file_id,
+                            caption=source_message.caption or ''
+                        )
+                    elif source_message.document:
+                        await context.bot.send_document(
+                            chat_id=uid,
+                            document=source_message.document.file_id,
+                            caption=source_message.caption or ''
+                        )
+                    elif source_message.animation:
+                        await context.bot.send_animation(
+                            chat_id=uid,
+                            animation=source_message.animation.file_id,
+                            caption=source_message.caption or ''
+                        )
+                    elif source_message.audio:
+                        await context.bot.send_audio(
+                            chat_id=uid,
+                            audio=source_message.audio.file_id,
+                            caption=source_message.caption or ''
+                        )
+                    elif source_message.voice:
+                        await context.bot.send_voice(
+                            chat_id=uid,
+                            voice=source_message.voice.file_id,
+                            caption=source_message.caption or ''
+                        )
+                    elif source_message.text:
+                        await context.bot.send_message(chat_id=uid, text=source_message.text)
+                    elif source_message.caption:
+                        await context.bot.send_message(chat_id=uid, text=source_message.caption)
+                    else:
+                        continue
+                else:
+                    await context.bot.send_message(chat_id=uid, text=direct_payload)
+
                 sent += 1
             except Exception:
                 failed += 1
+
         await update.message.reply_text(f'📢 Broadcast complete. Sent: {sent} | Failed: {failed}')
 
     async def maintenance_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1248,47 +1305,3 @@ Ye commands sirf admins ke liye visible aur usable hain."""
                 await update.message.reply_text(f'Approved but DM nahi gaya: {e}')
         else:
             await update.message.reply_text('Approved, but premium link not configured.')
-
-
-async def trending_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rows = self.db.get_trending_courses()
-    if not rows:
-        await update.message.reply_text("No trending data yet.")
-        return
-    text = "🔥 Trending Courses:\n"
-    for r in rows:
-        text += f"Course ID: {r['course_id']} (Clicks: {r['c']})\n"
-    await update.message.reply_text(text)
-
-async def broadcast_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    self.track_user(update)
-    user = update.effective_user
-    if not user or not is_admin(user.id):
-        return
-
-    msg = update.message
-    target = msg.reply_to_message
-
-    users = self.db.get_all_user_ids()
-    sent, failed = 0, 0
-
-    for uid in users:
-        try:
-            if target:
-                if target.text:
-                    await context.bot.send_message(uid, target.text)
-                elif target.photo:
-                    await context.bot.send_photo(uid, target.photo[-1].file_id, caption=target.caption or "")
-                elif target.video:
-                    await context.bot.send_video(uid, target.video.file_id, caption=target.caption or "")
-                elif target.document:
-                    await context.bot.send_document(uid, target.document.file_id, caption=target.caption or "")
-            else:
-                payload = msg.text.replace("/broadcast", "", 1).strip()
-                if payload:
-                    await context.bot.send_message(uid, payload)
-            sent += 1
-        except Exception:
-            failed += 1
-
-    await msg.reply_text(f"Broadcast done. Sent:{sent} Failed:{failed}")
